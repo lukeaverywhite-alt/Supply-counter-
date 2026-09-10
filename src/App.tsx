@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Activity, Archive, ArrowRight, Boxes, ChevronDown, ClipboardCheck, Cloud, History,
   LayoutGrid, Minus, PackagePlus, Plus, RotateCcw, Search, Settings, ShieldCheck,
   UserRound, Users, Wifi, LogOut, FileUp, CalendarRange, KeyRound, X, Check, Shirt,
 } from 'lucide-react'
-import { cadets, inventory as initialInventory } from './data'
-import type { InventoryItem } from './types'
+import { loadData, rollover, saveData, submitCount, transact, withAudit } from './domain'
+import type { AppData, InventoryItem } from './types'
 
 type Tab = 'count' | 'inventory' | 'cadets' | 'activity' | 'more'
 type Panel = 'signin' | 'cadet' | 'issue' | 'return' | 'review' | 'bundles' | 'needed' | 'roster' | 'rollover' | 'import' | 'roles' | null
@@ -20,10 +20,11 @@ const navItems: { id: Tab; label: string; icon: typeof Activity }[] = [
 
 function App() {
   const [tab, setTab] = useState<Tab>('count')
-  const [items, setItems] = useState(initialInventory)
-  const [selectedId, setSelectedId] = useState(1)
-  const [count, setCount] = useState(18)
-  const [step, setStep] = useState(1)
+  const [data, setData] = useState<AppData>(() => loadData())
+  const items = data.inventory
+  const [selectedId, setSelectedId] = useState(items[0].id)
+  const [count, setCount] = useState(data.session.counts[items[0].id] ?? items[0].onHand)
+  const [step, setStep] = useState(items[0].countBy)
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [panel, setPanel] = useState<Panel>(null)
@@ -34,10 +35,22 @@ function App() {
     return items.filter((item) => `${item.name}${item.category}${item.size}${item.niin}`.toLowerCase().replaceAll('-', '').replaceAll(' ', '').includes(value))
   }, [items, query])
 
+  useEffect(() => saveData(data), [data])
+
   const selectItem = (item: InventoryItem) => {
     setSelectedId(item.id)
-    setCount(item.onHand)
+    setCount(data.session.counts[item.id] ?? item.onHand)
+    setStep(item.countBy)
     setQuery('')
+  }
+
+  const runAction = (action: (current: AppData) => AppData, success: string) => {
+    try {
+      setData(action(data))
+      setNotice(success)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The action could not be completed.')
+    }
   }
 
   return (
@@ -109,7 +122,7 @@ function CountView({ selected, count, setCount, step, setStep, query, setQuery, 
   return <div className="content count-page">
     <section className="hero-row">
       <div><div className="section-kicker"><span /><b>ACTIVE SESSION</b><span /></div><h2>Count with confidence.</h2><p>Every tap is saved to this draft. Official inventory changes only after review.</p></div>
-      <div className="session-chip"><span className="pulse" /><div><small>FALL INVENTORY</small><strong>Session #024</strong></div><ChevronDown size={16} /></div>
+      <div className="session-chip"><span className="pulse" /><div><small>{session.status.toUpperCase()}</small><strong>{session.name}</strong></div><ChevronDown size={16} /></div>
     </section>
 
     <div className="search-wrap">
@@ -163,9 +176,8 @@ function CadetsView({ query, setQuery, onOpen }: { query: string; setQuery: (val
   return <div className="content"><section className="page-intro"><div><p className="eyebrow">PERSONNEL ACCOUNTABILITY</p><h2>Cadet property records.</h2><p>Fictional records are shown in this front-end preview.</p></div><button className="gold-button"><UserRound size={18}/> Add cadet</button></section><div className="table-card"><div className="table-tools"><div className="inline-search"><Search size={18}/><input aria-label="Search cadets" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search cadet name…" /></div></div><div className="cadet-grid">{visible.map(cadet => <button className="cadet-card" key={cadet.id} onClick={onOpen}><span className="large-avatar">{cadet.initials}</span><span><strong>{cadet.name}</strong><small>{cadet.level} · {cadet.configuration}</small></span><div><b>{cadet.items}</b><small>Issued items</small></div><em className={cadet.status === 'Clear' ? 'ready' : 'attention'}>{cadet.status}</em><ArrowRight size={18}/></button>)}</div></div></div>
 }
 
-function ActivityView() {
-  const events = [['Physical count opened','Navy PT Shirt · Medium','RW','Just now'],['Issued bundle','PT Gear bundle to Alex Morgan','KM','14 min ago'],['Return recorded','Black Oxford Shoes · Serviceable','RW','1 hr ago'],['Inventory reconciled','White Undershirt · No discrepancy','AD','Yesterday']]
-  return <div className="content"><section className="page-intro"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Nothing changes silently.</h2><p>A clear record of actions, people, and outcomes.</p></div></section><div className="timeline">{events.map(([title,detail,user,time], i) => <div className="event" key={title}><span className="event-icon">{i === 0 ? <ClipboardCheck/> : i === 1 ? <PackagePlus/> : i === 2 ? <RotateCcw/> : <ShieldCheck/>}</span><div><strong>{title}</strong><p>{detail}</p></div><span className="event-user">{user}</span><time>{time}</time></div>)}</div></div>
+function ActivityView({ data }: { data: AppData }) {
+  return <div className="content"><section className="page-intro"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Nothing changes silently.</h2><p>A local, append-only record of actions and outcomes.</p></div></section><div className="timeline">{data.audit.length ? data.audit.map(event => <div className="event" key={event.id}><span className="event-icon"><History/></span><div><strong>{event.summary}</strong><p>{event.type}</p></div><span className="event-user">{event.actor.split(' ').map(v => v[0]).join('')}</span><time>{new Date(event.at).toLocaleString()}</time></div>) : <div className="empty-state">No activity yet. Completed actions will appear here.</div>}</div></div>
 }
 
 function MoreView({ onOpen }: { onOpen: (panel: Panel) => void }) {
@@ -210,7 +222,7 @@ function PanelRows({ rows, selectable = false }: { rows: string[]; selectable?: 
 
 function AddItemModal({ onClose, onSave }: { onClose: () => void; onSave: (item: Omit<InventoryItem, 'id' | 'issued' | 'status'>) => void }) {
   const [name, setName] = useState(''); const [category, setCategory] = useState(''); const [size, setSize] = useState(''); const [niin, setNiin] = useState(''); const [qty, setQty] = useState(0)
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal" onSubmit={(e) => { e.preventDefault(); onSave({ name, category, size: size || 'No size', niin: niin || 'Not assigned', onHand: qty }) }} onMouseDown={(e) => e.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">INVENTORY ADMINISTRATION</p><h2>Add a new item</h2></div><button type="button" onClick={onClose}>×</button></div><p>Create the core item now. Sizes and ordering details remain editable.</p><label>Item name<input required value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Navy PT Shirt" /></label><div className="form-grid"><label>Category<input required value={category} onChange={e => setCategory(e.target.value)} placeholder="PT Gear" /></label><label>Size or variant<input value={size} onChange={e => setSize(e.target.value)} placeholder="Medium" /></label><label>CDMIS NIIN<input value={niin} onChange={e => setNiin(e.target.value)} placeholder="Optional" /></label><label>Initial on hand<input type="number" min="0" value={qty} onChange={e => setQty(Number(e.target.value))} /></label></div><div className="modal-actions"><button type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit">Add item <ArrowRight size={17}/></button></div></form></div>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal" onSubmit={(e) => { e.preventDefault(); const resolvedSize = size || 'No size'; onSave({ name, category, sizes: resolvedSize.split(',').map(value => value.trim()).filter(Boolean), size: resolvedSize.split(',')[0].trim(), niin: niin || 'Not assigned', onHand: qty, reorderAt: 0, countBy: 1 }) }} onMouseDown={(e) => e.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">INVENTORY ADMINISTRATION</p><h2>Add a new item</h2></div><button type="button" onClick={onClose}>×</button></div><p>Create the core item now. Sizes and ordering details remain editable.</p><label>Item name<input required value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Navy PT Shirt" /></label><div className="form-grid"><label>Category<input required value={category} onChange={e => setCategory(e.target.value)} placeholder="PT Gear" /></label><label>Size or variant<input value={size} onChange={e => setSize(e.target.value)} placeholder="Medium" /></label><label>CDMIS NIIN<input value={niin} onChange={e => setNiin(e.target.value)} placeholder="Optional" /></label><label>Initial on hand<input type="number" min="0" value={qty} onChange={e => setQty(Number(e.target.value))} /></label></div><div className="modal-actions"><button type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit">Add item <ArrowRight size={17}/></button></div></form></div>
 }
 
 export default App
