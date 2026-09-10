@@ -13,6 +13,13 @@ describe('local inventory domain', () => {
     expect(() => transact(fresh(), 'shorts-pt-m', 9, 'issue')).toThrow(/Only 8/)
   })
 
+  it('rejects impossible returns and unknown cadet records', () => {
+    const data = fresh()
+    data.inventory[0].issued = 0
+    expect(() => transact(data, 'shirt-pt-m', 1, 'return', 'cadet-am')).toThrow(/Only 0 issued units/)
+    expect(() => transact(fresh(), 'shirt-pt-m', 1, 'issue', 'missing-cadet')).toThrow(/Cadet was not found/)
+  })
+
   it('validates an entire bundle before issuing its lines', () => {
     const next = applyBundle(fresh(), 'bundle-pt', 'cadet-am')
     expect(next.inventory.find(i => i.id === 'shirt-pt-m')?.onHand).toBe(23)

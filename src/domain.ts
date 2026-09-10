@@ -27,6 +27,10 @@ export function transact(data: AppData, itemId: string, quantity: number, kind: 
   const target = data.inventory.find(item => item.id === itemId)
   if (!target) throw new Error('Inventory item was not found.')
   if (kind === 'issue' && target.onHand < quantity) throw new Error(`Only ${target.onHand} available to issue.`)
+  if (kind === 'return' && target.issued < quantity) throw new Error(`Only ${target.issued} issued unit${target.issued === 1 ? '' : 's'} can be returned.`)
+  const cadet = cadetId ? data.cadets.find(entry => entry.id === cadetId) : undefined
+  if (cadetId && !cadet) throw new Error('Cadet was not found.')
+  if (kind === 'return' && cadet && cadet.items < quantity) throw new Error(`${cadet.name} has only ${cadet.items} issued item${cadet.items === 1 ? '' : 's'}.`)
   const delta = kind === 'issue' ? -quantity : quantity
   const issuedDelta = -delta
   const inventory = data.inventory.map(item => item.id !== itemId ? item : {

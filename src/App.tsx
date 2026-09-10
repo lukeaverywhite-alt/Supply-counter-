@@ -23,7 +23,7 @@ function App() {
   const items = data.inventory
   const [selectedId, setSelectedId] = useState(items[0].id)
   const [count, setCount] = useState(data.session.counts[items[0].id] ?? items[0].onHand)
-  const [step, setStep] = useState(1)
+  const [step, setStep] = useState(items[0].countBy)
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [notice, setNotice] = useState('')
@@ -37,8 +37,18 @@ function App() {
 
   const selectItem = (item: InventoryItem) => {
     setSelectedId(item.id)
-    setCount(item.onHand)
+    setCount(data.session.counts[item.id] ?? item.onHand)
+    setStep(item.countBy)
     setQuery('')
+  }
+
+  const runAction = (action: (current: AppData) => AppData, success: string) => {
+    try {
+      setData(action(data))
+      setNotice(success)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The action could not be completed.')
+    }
   }
 
   return (
@@ -69,11 +79,11 @@ function App() {
         </header>
 
         {notice && <button className="notice" onClick={() => setNotice('')} aria-label="Dismiss notification">{notice} ×</button>}
-        {tab === 'count' && <CountView selected={selected} count={count} setCount={(value) => { setCount(value); setData(current => ({ ...current, session: { ...current.session, status: 'draft', counts: { ...current.session.counts, [selected.id]: value } } })) }} step={step} setStep={setStep} query={query} setQuery={setQuery} filtered={filtered} selectItem={selectItem} onSubmit={() => { try { setData(current => submitCount(current)); setNotice('Physical count submitted and inventory reconciled.') } catch (error) { setNotice((error as Error).message) } }} session={data.session} />}
+        {tab === 'count' && <CountView selected={selected} count={count} setCount={(value) => { setCount(value); setData(current => ({ ...current, session: { ...current.session, status: 'draft', counts: { ...current.session.counts, [selected.id]: value } } })) }} step={step} setStep={setStep} query={query} setQuery={setQuery} filtered={filtered} selectItem={selectItem} onSubmit={() => runAction(submitCount, 'Physical count submitted and inventory reconciled.')} session={data.session} />}
         {tab === 'inventory' && <InventoryView items={filtered} allItems={items} query={query} setQuery={setQuery} onAdd={() => setShowAdd(true)} selectItem={(item) => { selectItem(item); setTab('count') }} />}
-        {tab === 'cadets' && <CadetsView data={data} onTransaction={(kind, itemId, cadetId) => { try { setData(current => transact(current, itemId, 1, kind, cadetId)); setNotice(`${kind === 'issue' ? 'Issue' : 'Return'} recorded.`) } catch (error) { setNotice((error as Error).message) } }} />}
+        {tab === 'cadets' && <CadetsView data={data} onTransaction={(kind, itemId, cadetId) => runAction(current => transact(current, itemId, 1, kind, cadetId), `${kind === 'issue' ? 'Issue' : 'Return'} recorded.`)} />}
         {tab === 'activity' && <ActivityView data={data} />}
-        {tab === 'more' && <MoreView data={data} onRollover={() => { try { setData(current => rollover(current, window.confirm(`Advance from ${current.schoolYear} to ${current.schoolYear + 1}?`))); setNotice('Annual rollover completed.') } catch (error) { setNotice((error as Error).message) } }} />}
+        {tab === 'more' && <MoreView data={data} onRollover={() => runAction(current => rollover(current, window.confirm(`Advance from ${current.schoolYear} to ${current.schoolYear + 1}?`)), 'Annual rollover completed.')} />}
       </main>
 
       <nav className="mobile-nav" aria-label="Mobile navigation">
