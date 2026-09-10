@@ -80,7 +80,7 @@ function App() {
 }
 
 function Brand() {
-  return <div className="brand"><img src="/argus-mark.svg" alt="" /><div><strong>A.R.G.U.S.</strong><span>ASSET READINESS SYSTEM</span></div></div>
+  return <div className="brand"><img src={`${import.meta.env.BASE_URL}argus-mark.svg`} alt="" /><div><strong>A.R.G.U.S.</strong><span>ASSET READINESS SYSTEM</span></div></div>
 }
 
 function pageTitle(tab: Tab) {

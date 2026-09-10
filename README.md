@@ -25,9 +25,25 @@ npm run dev
 
 ```bash
 npm test
+npm run test:coverage
 npm run lint
 npm run build
+npm run test:deploy
 ```
+
+## GitHub Pages deployment
+
+The `Deploy A.R.G.U.S. to GitHub Pages` workflow verifies and publishes the app whenever changes reach the `main` branch. It can also be started manually from the repository's **Actions** tab.
+
+Before the first deployment, open **Settings → Pages** in GitHub and set **Source** to **GitHub Actions**. The workflow then:
+
+1. installs the locked dependencies with `npm ci` on Node.js 24;
+2. runs the test and lint suites;
+3. creates a production build;
+4. serves that build from a simulated repository subdirectory and verifies every deployment asset; and
+5. publishes the verified `dist` directory to GitHub Pages.
+
+The build uses relative asset paths so the installed app, manifest, icon, and service worker work from the repository's GitHub Pages subdirectory as well as a future custom domain.
 
 ## Product boundary
 
