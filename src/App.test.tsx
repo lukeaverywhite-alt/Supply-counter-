@@ -65,6 +65,20 @@ describe('A.R.G.U.S. count workflow', () => {
 
     expect(screen.getByText('Test Belt')).toBeInTheDocument()
     expect(screen.getByText(/Accessories · Not assigned/)).toBeInTheDocument()
+    expect(screen.getByText('98')).toBeInTheDocument()
+    expect(screen.getByText('6 tracked variants')).toBeInTheDocument()
+  })
+
+  it('keeps inventory and cadet totals consistent', () => {
+    render(<App />)
+    fireEvent.click(screen.getAllByRole('button', { name: /inventory/i })[0])
+    expect(screen.getByText('86')).toBeInTheDocument()
+    expect(screen.getByText('75')).toBeInTheDocument()
+    expect(screen.getByText('5 tracked variants')).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole('button', { name: /cadets/i })[0])
+    const issuedCounts = Array.from(document.querySelectorAll('.cadet-card div > b')).map((node) => Number(node.textContent))
+    expect(issuedCounts.reduce((total, value) => total + value, 0)).toBe(75)
   })
 
   it('opens the cadet and audit views from primary navigation', () => {
