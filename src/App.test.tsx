@@ -89,6 +89,18 @@ describe('A.R.G.U.S. count workflow', () => {
     expect(screen.getByRole('heading', { name: 'Nothing changes silently.' })).toBeInTheDocument()
   })
 
+  it('uses an item count rule and restores its saved draft when switching items', () => {
+    render(<App />)
+    fireEvent.change(screen.getByLabelText('Search inventory'), { target: { value: 'White Undershirt' } })
+    fireEvent.click(screen.getByRole('button', { name: /white undershirt/i }))
+    expect(screen.getByRole('button', { name: /add 5/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /add 5/i }))
+
+    fireEvent.change(screen.getByLabelText('Search inventory'), { target: { value: 'Navy PT Shirt' } })
+    fireEvent.click(screen.getByRole('button', { name: /navy pt shirt/i }))
+    fireEvent.change(screen.getByLabelText('Search inventory'), { target: { value: 'White Undershirt' } })
+    fireEvent.click(screen.getByRole('button', { name: /white undershirt/i }))
+    expect(document.querySelector('.count-display strong')).toHaveTextContent('37')
   it('demonstrates sign-in and count-review panels', () => {
     render(<App />)
 
