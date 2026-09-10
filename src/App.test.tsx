@@ -65,6 +65,20 @@ describe('A.R.G.U.S. count workflow', () => {
 
     expect(screen.getByText('Test Belt')).toBeInTheDocument()
     expect(screen.getByText(/Accessories · Not assigned/)).toBeInTheDocument()
+    expect(screen.getByText('98')).toBeInTheDocument()
+    expect(screen.getByText('6 tracked variants')).toBeInTheDocument()
+  })
+
+  it('keeps inventory and cadet totals consistent', () => {
+    render(<App />)
+    fireEvent.click(screen.getAllByRole('button', { name: /inventory/i })[0])
+    expect(screen.getByText('86')).toBeInTheDocument()
+    expect(screen.getByText('75')).toBeInTheDocument()
+    expect(screen.getByText('5 tracked variants')).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole('button', { name: /cadets/i })[0])
+    const issuedCounts = Array.from(document.querySelectorAll('.cadet-card div > b')).map((node) => Number(node.textContent))
+    expect(issuedCounts.reduce((total, value) => total + value, 0)).toBe(75)
   })
 
   it('opens the cadet and audit views from primary navigation', () => {
@@ -87,5 +101,64 @@ describe('A.R.G.U.S. count workflow', () => {
     fireEvent.change(screen.getByLabelText('Search inventory'), { target: { value: 'White Undershirt' } })
     fireEvent.click(screen.getByRole('button', { name: /white undershirt/i }))
     expect(document.querySelector('.count-display strong')).toHaveTextContent('37')
+  it('demonstrates sign-in and count-review panels', () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: /riley west/i }))
+    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
+    expect(screen.getByDisplayValue('riley.west@demo.invalid')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+
+    fireEvent.click(screen.getByRole('button', { name: /review & submit/i }))
+    expect(screen.getByRole('heading', { name: 'Review physical count' })).toBeInTheDocument()
+    expect(screen.getAllByText('-6 units')).toHaveLength(2)
+    fireEvent.mouseDown(document.querySelector('.drawer-backdrop')!)
+    expect(screen.queryByRole('heading', { name: 'Review physical count' })).not.toBeInTheDocument()
+  })
+
+  it('searches cadets and walks through issue and return previews', () => {
+    render(<App />)
+    fireEvent.click(screen.getAllByRole('button', { name: /cadets/i })[0])
+    fireEvent.change(screen.getByLabelText('Search cadets'), { target: { value: 'alex' } })
+    expect(screen.getByRole('button', { name: /alex morgan/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /jordan carter/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /alex morgan/i }))
+    expect(screen.getByRole('heading', { name: 'Alex Morgan' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Issue items' }))
+    expect(screen.getByRole('heading', { name: 'Issue selected items' })).toBeInTheDocument()
+    expect(screen.getAllByRole('checkbox')).toHaveLength(3)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+    fireEvent.click(screen.getByRole('button', { name: /alex morgan/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Return item' }))
+    expect(screen.getByRole('heading', { name: 'Record a return' })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['Issue bundles', 'Bundle selection'],
+    ['Still needed', 'Still Needed'],
+    ['Roles & access', 'Roles & access'],
+    ['Import preview', 'Import 24 cadets'],
+    ['Annual rollover', 'Annual rollover preview'],
+  ])('opens the %s command-center preview', (action, heading) => {
+    render(<App />)
+    fireEvent.click(screen.getAllByRole('button', { name: /more/i })[0])
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${action}(?:$|\\s)`, 'i') }))
+    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument()
+  })
+
+  it('navigates from roster administration to import and rollover previews', () => {
+    render(<App />)
+    fireEvent.click(screen.getAllByRole('button', { name: /more/i })[0])
+    fireEvent.click(screen.getByRole('button', { name: /roster administration/i }))
+    expect(screen.getByRole('heading', { name: 'Cadet roster' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Import roster' }))
+    expect(screen.getByRole('heading', { name: 'Import 24 cadets' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+    fireEvent.click(screen.getByRole('button', { name: /roster administration/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview rollover' }))
+    expect(screen.getByRole('heading', { name: 'Annual rollover preview' })).toBeInTheDocument()
   })
 })
