@@ -18,7 +18,7 @@
     "lucide-react": "latest"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
+    "@eslint/js": "latest",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "latest",
