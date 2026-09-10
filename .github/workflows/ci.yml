@@ -50,6 +50,14 @@ jobs:
       - name: Verify repository-path deployment
         run: npm run test:deploy
 
+      - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+        with:
+          # Bootstrap the Pages site when this repository has not been enabled
+          # yet, instead of failing the build with a Pages API 404.
+          enablement: true
+
       - name: Upload GitHub Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
@@ -71,15 +79,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Configure or enable GitHub Pages
-        uses: actions/configure-pages@v5
-        with:
-          # GitHub's built-in token can read an existing Pages site but cannot
-          # enable one. Use the bootstrap token when present, then fall back to
-          # the built-in token for normal deployments.
-          token: ${{ secrets.PAGES_TOKEN || github.token }}
-          enablement: true
-
       - name: Deploy website
         id: deployment
         uses: actions/deploy-pages@v4
