@@ -55,6 +55,10 @@ jobs:
       - name: Configure GitHub Pages
         if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
+        with:
+          # Bootstrap the Pages site when this repository has not been enabled
+          # yet, instead of failing the build with a Pages API 404.
+          enablement: true
 
       - name: Upload GitHub Pages artifact
         if: github.event_name != 'pull_request'
