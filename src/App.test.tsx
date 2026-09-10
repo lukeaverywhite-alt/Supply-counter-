@@ -104,6 +104,31 @@ describe('A.R.G.U.S. count workflow', () => {
     expect(screen.queryByRole('heading', { name: 'Review physical count' })).not.toBeInTheDocument()
   })
 
+  it('submits a changed count and exposes the audit record', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /add 1/i }))
+    fireEvent.click(screen.getByRole('button', { name: /review & submit/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit count' }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('Physical count submitted.')
+    fireEvent.click(screen.getAllByRole('button', { name: /activity/i })[0])
+    expect(screen.getByText(/Submitted Fall inventory/)).toBeInTheDocument()
+    expect(screen.getByText('count.submitted')).toBeInTheDocument()
+  })
+
+  it('records an issue in inventory, cadet totals, and the audit trail', () => {
+    render(<App />)
+    fireEvent.click(screen.getAllByRole('button', { name: /cadets/i })[0])
+    fireEvent.click(screen.getByRole('button', { name: /alex morgan/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Issue items' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm issue' }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('Issued 1 Navy PT Shirt.')
+    expect(screen.getByRole('button', { name: /alex morgan.*7.*issued items/i })).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: /activity/i })[0])
+    expect(screen.getByText('Issued 1 × Navy PT Shirt')).toBeInTheDocument()
+  })
+
   it('searches cadets and walks through issue and return previews', () => {
     render(<App />)
     fireEvent.click(screen.getAllByRole('button', { name: /cadets/i })[0])

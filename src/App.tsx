@@ -29,6 +29,7 @@ function App() {
   const [showAdd, setShowAdd] = useState(false)
   const [panel, setPanel] = useState<Panel>(null)
   const [cadetQuery, setCadetQuery] = useState('')
+  const [notice, setNotice] = useState('')
   const selected = items.find((item) => item.id === selectedId) ?? items[0]
   const filtered = useMemo(() => {
     const value = query.toLowerCase().replaceAll('-', '').replaceAll(' ', '')
@@ -36,6 +37,17 @@ function App() {
   }, [items, query])
 
   useEffect(() => saveData(data), [data])
+  useEffect(() => {
+    if (!notice) return
+    const timeout = window.setTimeout(() => setNotice(''), 4000)
+    return () => window.clearTimeout(timeout)
+  }, [notice])
+
+  const updateCount = (value: number) => {
+    const safeValue = Math.max(0, value)
+    setCount(safeValue)
+    setData(current => ({ ...current, session: { ...current.session, status: 'draft', submittedAt: undefined, counts: { ...current.session.counts, [selected.id]: safeValue } } }))
+  }
 
   const selectItem = (item: InventoryItem) => {
     setSelectedId(item.id)
@@ -80,10 +92,11 @@ function App() {
           <div className="top-actions"><span className="sync"><Wifi size={15} /> Local draft</span><button className="icon-button" aria-label="Settings"><Settings size={20} /></button><span className="top-avatar">RW</span></div>
         </header>
 
-        {tab === 'count' && <CountView selected={selected} count={count} setCount={setCount} step={step} setStep={setStep} query={query} setQuery={setQuery} filtered={filtered} selectItem={selectItem} onReview={() => setPanel('review')} />}
+        {notice && <div className="app-notice" role="status">{notice}</div>}
+        {tab === 'count' && <CountView session={data.session} selected={selected} count={count} setCount={updateCount} step={step} setStep={setStep} query={query} setQuery={setQuery} filtered={filtered} selectItem={selectItem} onReview={() => setPanel('review')} />}
         {tab === 'inventory' && <InventoryView items={filtered} query={query} setQuery={setQuery} onAdd={() => setShowAdd(true)} selectItem={(item) => { selectItem(item); setTab('count') }} />}
-        {tab === 'cadets' && <CadetsView query={cadetQuery} setQuery={setCadetQuery} onOpen={() => setPanel('cadet')} />}
-        {tab === 'activity' && <ActivityView />}
+        {tab === 'cadets' && <CadetsView cadets={data.cadets} query={cadetQuery} setQuery={setCadetQuery} onOpen={() => setPanel('cadet')} />}
+        {tab === 'activity' && <ActivityView data={data} />}
         {tab === 'more' && <MoreView onOpen={setPanel} />}
       </main>
 
@@ -91,8 +104,8 @@ function App() {
         {navItems.map(({ id, label, icon: Icon }) => <button className={tab === id ? 'active' : ''} key={id} onClick={() => setTab(id)}><Icon size={21} /><span>{label}</span></button>)}
       </nav>
 
-      {showAdd && <AddItemModal onClose={() => setShowAdd(false)} onSave={(item) => { setItems([...items, { ...item, id: Date.now(), issued: 0, status: 'Ready' }]); setShowAdd(false) }} />}
-      {panel && <DemoPanel panel={panel} count={count} official={selected.onHand} onClose={() => setPanel(null)} onOpen={setPanel} />}
+      {showAdd && <AddItemModal onClose={() => setShowAdd(false)} onSave={(item) => { const created = { ...item, id: crypto.randomUUID(), issued: 0, status: 'Ready' as const }; setData(current => withAudit({ ...current, inventory: [...current.inventory, created] }, 'item.created', `Created ${created.name}`, created.id)); setShowAdd(false); setNotice(`${created.name} was added.`) }} />}
+      {panel && <DemoPanel panel={panel} count={count} official={selected.onHand} onClose={() => setPanel(null)} onOpen={setPanel} onSubmitCount={() => { runAction(current => submitCount(current), 'Physical count submitted.'); setPanel(null) }} onIssue={() => { runAction(current => transact(current, selected.id, 1, 'issue', 'cadet-am'), `Issued 1 ${selected.name}.`); setPanel(null) }} onReturn={() => { runAction(current => transact(current, selected.id, 1, 'return', 'cadet-am'), `Returned 1 ${selected.name}.`); setPanel(null) }} onRollover={() => { runAction(current => rollover(current, true), 'Annual rollover completed.'); setPanel(null) }} />}
     </div>
   )
 }
@@ -106,12 +119,13 @@ function pageTitle(tab: Tab) {
 }
 
 type CountProps = {
+  session: AppData['session'];
   selected: InventoryItem; count: number; setCount: (value: number) => void; step: number; setStep: (value: number) => void
   query: string; setQuery: (value: string) => void; filtered: InventoryItem[]; selectItem: (item: InventoryItem) => void
   onReview: () => void
 }
 
-function CountView({ selected, count, setCount, step, setStep, query, setQuery, filtered, selectItem, onReview }: CountProps) {
+function CountView({ session, selected, count, setCount, step, setStep, query, setQuery, filtered, selectItem, onReview }: CountProps) {
   const difference = count - selected.onHand
   const chooseCustomStep = () => {
     const response = window.prompt('Enter a count increment greater than zero', String(step))
@@ -171,7 +185,7 @@ function Summary({ label, value, detail, accent = false }: { label: string; valu
   return <div className={accent ? 'summary-card accent' : 'summary-card'}><small>{label.toUpperCase()}</small><strong>{value}</strong><p>{detail}</p></div>
 }
 
-function CadetsView({ query, setQuery, onOpen }: { query: string; setQuery: (value: string) => void; onOpen: () => void }) {
+function CadetsView({ cadets, query, setQuery, onOpen }: { cadets: AppData['cadets']; query: string; setQuery: (value: string) => void; onOpen: () => void }) {
   const visible = cadets.filter(cadet => `${cadet.name} ${cadet.level}`.toLowerCase().includes(query.toLowerCase()))
   return <div className="content"><section className="page-intro"><div><p className="eyebrow">PERSONNEL ACCOUNTABILITY</p><h2>Cadet property records.</h2><p>Fictional records are shown in this front-end preview.</p></div><button className="gold-button"><UserRound size={18}/> Add cadet</button></section><div className="table-card"><div className="table-tools"><div className="inline-search"><Search size={18}/><input aria-label="Search cadets" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search cadet name…" /></div></div><div className="cadet-grid">{visible.map(cadet => <button className="cadet-card" key={cadet.id} onClick={onOpen}><span className="large-avatar">{cadet.initials}</span><span><strong>{cadet.name}</strong><small>{cadet.level} · {cadet.configuration}</small></span><div><b>{cadet.items}</b><small>Issued items</small></div><em className={cadet.status === 'Clear' ? 'ready' : 'attention'}>{cadet.status}</em><ArrowRight size={18}/></button>)}</div></div></div>
 }
@@ -185,7 +199,7 @@ function MoreView({ onOpen }: { onOpen: (panel: Panel) => void }) {
   return <div className="content"><section className="page-intro"><div><p className="eyebrow">ADMINISTRATION</p><h2>Command center.</h2><p>Protected tools for keeping A.R.G.U.S. ready.</p></div></section><div className="command-grid">{options.map(({icon:Icon,title,desc,panel}) => <button key={title} onClick={() => onOpen(panel)}><span><Icon/></span><div><strong>{title}</strong><p>{desc}</p></div><ArrowRight/></button>)}</div></div>
 }
 
-function DemoPanel({ panel, count, official, onClose, onOpen }: { panel: Exclude<Panel, null>; count: number; official: number; onClose: () => void; onOpen: (panel: Panel) => void }) {
+function DemoPanel({ panel, count, official, onClose, onOpen, onSubmitCount, onIssue, onReturn, onRollover }: { panel: Exclude<Panel, null>; count: number; official: number; onClose: () => void; onOpen: (panel: Panel) => void; onSubmitCount: () => void; onIssue: () => void; onReturn: () => void; onRollover: () => void }) {
   const difference = count - official
   const screens = {
     signin: { kicker: 'SECURE DEMONSTRATION', title: 'Welcome back', icon: KeyRound },
@@ -205,13 +219,13 @@ function DemoPanel({ panel, count, official, onClose, onOpen }: { panel: Exclude
     <header><span className="drawer-icon"><Icon /></span><div><p className="eyebrow">{screens.kicker}</p><h2 id="drawer-title">{screens.title}</h2></div><button aria-label="Close panel" onClick={onClose}><X /></button></header>
     {panel === 'signin' && <><div className="signin-crest"><Brand /><p>Use a fictional prototype identity to continue.</p></div><label className="field">Email<input defaultValue="riley.west@demo.invalid" /></label><label className="field">Password<input type="password" defaultValue="prototype" /></label><button className="primary-button">Sign in to A.R.G.U.S. <ArrowRight size={17}/></button><button className="quiet-action"><LogOut size={15}/> Sign out of preview</button></>}
     {panel === 'cadet' && <><div className="record-hero"><span className="large-avatar">AM</span><div><strong>Alex Morgan</strong><p>NS1 · Alpha Company · Standard A</p></div><em className="attention">1 still needed</em></div><div className="record-stats"><Summary label="Issued" value="6" detail="Active property"/><Summary label="Due" value="1" detail="Missing size"/></div><PanelRows rows={['Navy PT Shirt · Medium|2 issued Aug 18','Navy PT Shorts · Medium|2 issued Aug 18','White Undershirt · Large|2 issued Aug 18','Black Oxford Shoes · 10 Regular|Still needed']} /><div className="split-actions"><button onClick={() => onOpen('return')}>Return item</button><button className="primary-button" onClick={() => onOpen('issue')}>Issue items</button></div></>}
-    {panel === 'issue' && <><Notice text="Issuing to Alex Morgan · NS1"/><PanelRows selectable rows={['Navy PT Shirt · Medium|24 available','Navy PT Shorts · Medium|8 available','Black Oxford Shoes · 10 R|6 available']} /><label className="field">Condition<select><option>Serviceable / new</option><option>Serviceable / used</option></select></label><button className="primary-button">Review issue · 2 items <ArrowRight size={17}/></button></>}
-    {panel === 'return' && <><Notice text="Returning from Alex Morgan · property record"/><PanelRows selectable rows={['Navy PT Shirt · Medium|Issued Aug 18','Navy PT Shorts · Medium|Issued Aug 18']} /><label className="field">Return condition<select><option>Serviceable</option><option>Laundry / inspection</option><option>Unserviceable</option></select></label><button className="primary-button">Record return <RotateCcw size={17}/></button></>}
-    {panel === 'review' && <><Notice text="Draft only · inventory remains unchanged until approval"/><div className="review-hero"><div><small>OFFICIAL</small><strong>{official}</strong></div><ArrowRight/><div><small>PHYSICAL</small><strong>{count}</strong></div></div><div className={difference === 0 ? 'difference match' : 'difference warning'}><Activity/><div><small>DISCREPANCY</small><strong>{difference > 0 ? '+' : ''}{difference} units</strong><p>{difference === 0 ? 'No adjustment required.' : 'Supply Officer approval required.'}</p></div></div><label className="field">Review note<textarea placeholder="Optional context for the audit record" /></label><button className="primary-button">Submit for approval <ShieldCheck size={17}/></button></>}
+    {panel === 'issue' && <><Notice text="Issuing one selected inventory item to Alex Morgan · NS1"/><PanelRows selectable rows={['Navy PT Shirt · Medium|24 available','Navy PT Shorts · Medium|8 available','Black Oxford Shoes · 10 R|6 available']} /><label className="field">Condition<select><option>Serviceable / new</option><option>Serviceable / used</option></select></label><button className="primary-button" onClick={onIssue}>Confirm issue <ArrowRight size={17}/></button></>}
+    {panel === 'return' && <><Notice text="Returning one selected inventory item from Alex Morgan"/><PanelRows selectable rows={['Navy PT Shirt · Medium|Issued Aug 18','Navy PT Shorts · Medium|Issued Aug 18']} /><label className="field">Return condition<select><option>Serviceable</option><option>Laundry / inspection</option><option>Unserviceable</option></select></label><button className="primary-button" onClick={onReturn}>Record return <RotateCcw size={17}/></button></>}
+    {panel === 'review' && <><Notice text="Submitting updates official inventory and creates an audit record"/><div className="review-hero"><div><small>OFFICIAL</small><strong>{official}</strong></div><ArrowRight/><div><small>PHYSICAL</small><strong>{count}</strong></div></div><div className={difference === 0 ? 'difference match' : 'difference warning'}><Activity/><div><small>DISCREPANCY</small><strong>{difference > 0 ? '+' : ''}{difference} units</strong><p>{difference === 0 ? 'No adjustment required.' : 'The adjustment will be recorded.'}</p></div></div><label className="field">Review note<textarea placeholder="Optional context for the audit record" /></label><button className="primary-button" onClick={onSubmitCount}>Submit count <ShieldCheck size={17}/></button></>}
     {panel === 'bundles' && <><Notice text="Select a standard configuration, then confirm sizes."/><PanelRows selectable rows={['Standard A · NS1|8 required pieces','PT Gear starter|3 required pieces','Drill team add-on|4 optional pieces']} /><button className="primary-button">Continue to sizes <ArrowRight size={17}/></button></>}
     {panel === 'needed' && <PanelRows rows={['Alex Morgan · Black Oxford Shoes|Size 10 Regular · Open 23 days','Taylor Sample · Navy PT Shorts|Size Medium · Awaiting stock']} />}
     {panel === 'roster' && <><div className="drawer-toolbar"><button onClick={() => onOpen('import')}><FileUp/> Import roster</button><button onClick={() => onOpen('rollover')}><CalendarRange/> Preview rollover</button></div><PanelRows rows={['Alex Morgan|NS1 · Alpha','Jordan Carter|NS3 · Bravo','Taylor Sample|NS4 · Staff']} /></>}
-    {panel === 'rollover' && <><div className="review-hero"><div><small>PROMOTE</small><strong>2</strong></div><div><small>ARCHIVE</small><strong>1</strong></div><div><small>REVIEW</small><strong>1</strong></div></div><PanelRows rows={['Alex Morgan · NS1 → NS2|Ready','Jordan Carter · NS3 → NS4|Ready','Taylor Sample · NS4|Archive after returns · Review']} /><button className="primary-button">Export preview</button></>}
+    {panel === 'rollover' && <><div className="review-hero"><div><small>PROMOTE</small><strong>2</strong></div><div><small>ARCHIVE</small><strong>1</strong></div><div><small>REVIEW</small><strong>1</strong></div></div><PanelRows rows={['Alex Morgan · NS1 → NS2|Ready','Jordan Carter · NS3 → NS4|Ready','Taylor Sample · NS4|Archive after returns · Review']} /><button className="primary-button" onClick={onRollover}>Complete rollover</button></>}
     {panel === 'import' && <><Notice text="cadet_roster_demo.csv · No data has been saved"/><div className="validation"><Check/><div><strong>22 rows ready</strong><p>2 rows need review before import</p></div></div><PanelRows rows={['Row 8 · Duplicate student ID|Needs review','Row 19 · Missing company|Needs review']} /><button className="primary-button">Import 22 valid records</button></>}
     {panel === 'roles' && <><PanelRows rows={['Riley West|Supply Staff · Active','Kendall Moore|Supply Staff · Active','Avery Demo|Supply Officer · Active']} /><div className="role-key"><strong>Role permissions</strong><p><b>Supply Staff</b> can count, issue, and return. <b>Supply Officer</b> can approve adjustments and administer users.</p></div><button className="primary-button">Invite authorized user</button></>}
   </aside></div>

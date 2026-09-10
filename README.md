@@ -8,7 +8,9 @@ This repository currently contains the first functional front-end prototype. It 
 
 - Installable PWA shell with an A.R.G.U.S. home-screen icon
 - Fast physical counting with 1, 5, 10, and custom increments
-- Draft counts that remain separate from official inventory
+- Persisted local draft counts that remain separate from official inventory until submission
+- Functional local count submission, item creation, issue, return, and annual rollover actions
+- Local audit events for every inventory-changing action
 - Search by item name, category, size, or normalized CDMIS NIIN
 - Inventory, cadet, activity, and administration views
 - Fictional data for safe interface review
