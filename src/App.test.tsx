@@ -74,4 +74,31 @@ describe('A.R.G.U.S. count workflow', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /activity/i })[0])
     expect(screen.getByRole('heading', { name: 'Nothing changes silently.' })).toBeInTheDocument()
   })
+
+  it('uses an item count rule and restores its saved draft when switching items', () => {
+    render(<App />)
+    fireEvent.change(screen.getByLabelText('Search inventory'), { target: { value: 'White Undershirt' } })
+    fireEvent.click(screen.getByRole('button', { name: /white undershirt/i }))
+    expect(screen.getByRole('button', { name: /add 5/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /add 5/i }))
+
+    fireEvent.change(screen.getByLabelText('Search inventory'), { target: { value: 'Navy PT Shirt' } })
+    fireEvent.click(screen.getByRole('button', { name: /navy pt shirt/i }))
+    fireEvent.change(screen.getByLabelText('Search inventory'), { target: { value: 'White Undershirt' } })
+    fireEvent.click(screen.getByRole('button', { name: /white undershirt/i }))
+    expect(document.querySelector('.count-display strong')).toHaveTextContent('37')
+  })
+
+  it('shows rollover validation errors without crashing the application', () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: /more/i })[0])
+    fireEvent.click(screen.getByRole('button', { name: /begin annual rollover/i }))
+
+    expect(screen.getByRole('button', { name: /dismiss notification/i })).toHaveTextContent(
+      'Submit or clear the active count before rollover.',
+    )
+    expect(screen.getByRole('heading', { name: 'Command center.' })).toBeInTheDocument()
+  })
 })

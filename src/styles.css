@@ -98,3 +98,7 @@ button:focus-visible,input:focus-visible { outline:2px solid #16899a; outline-of
 @media (max-width:900px){.aether-field{left:78px}.topbar:after{left:20px;right:20px}}
 @media (max-width:680px){.aether-field{left:0}.topbar:after{left:16px;right:16px}.aether-field:before{display:none}.mobile-nav button{position:relative}.mobile-nav button.active:after{content:'◇';position:absolute;top:2px;color:var(--cyan);text-shadow:0 0 8px var(--cyan)}.gold-button:before{display:none}}
 @media (prefers-reduced-motion:reduce){.aether-field span,.count-display strong,.pulse{animation:none!important}}
+.notice { position: fixed; z-index: 20; top: 82px; right: 28px; max-width: 440px; padding: 13px 18px; border: 1px solid rgba(187,145,55,.45); border-radius: 12px; background: #fffaf0; color: #26372f; box-shadow: 0 12px 35px rgba(15,32,25,.18); font-weight: 700; }
+.transaction-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.transaction-bar select, .transaction-bar button:not(.gold-button) { min-height: 42px; border: 1px solid #d8d7cf; border-radius: 9px; padding: 0 12px; background: white; color: #26372f; }
+.empty-state { padding: 46px; text-align: center; color: #6e7771; background: rgba(255,255,255,.72); border: 1px dashed #c9cbc4; border-radius: 14px; }
