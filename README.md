@@ -1,2 +1,47 @@
-# Supply-counter-
-A modern app which allows for quick and clean issuing and return of items within the bethel supply unit.
+# A.R.G.U.S.
+
+**Asset Readiness & Gear Utility System** is a phone-first inventory and uniform-issuance application designed for Bethel Navy NJROTC supply operations.
+
+This repository currently contains the first functional front-end prototype. It uses fictional demonstration records only; no uploaded roster names or unverified inventory quantities are included.
+
+## Current prototype
+
+- Installable PWA shell with an A.R.G.U.S. home-screen icon
+- Fast physical counting with 1, 5, 10, and custom increments
+- Draft counts that remain separate from official inventory
+- Search by item name, category, size, or normalized CDMIS NIIN
+- Inventory, cadet, activity, and administration views
+- Fictional data for safe interface review
+- Responsive phone, tablet, and desktop layouts
+
+## Local development
+
+```bash
+npm install
+npm run dev
+```
+
+## Checks
+
+```bash
+npm test
+npm run lint
+npm run build
+```
+
+## GitHub Pages deployment
+
+The `Deploy A.R.G.U.S. to GitHub Pages` workflow verifies and publishes the app whenever changes reach the `main` branch. It can also be started manually from the repository's **Actions** tab.
+
+Before the first deployment, open **Settings → Pages** in GitHub and set **Source** to **GitHub Actions**. The workflow then:
+
+1. installs the locked dependencies with `npm ci`;
+2. runs the test and lint suites;
+3. creates a production build; and
+4. publishes the generated `dist` directory to GitHub Pages.
+
+The build uses relative asset paths so the installed app, manifest, icon, and service worker work from the repository's GitHub Pages subdirectory as well as a future custom domain.
+
+## Product boundary
+
+Authentication, shared real-time counting, production roster imports, backend persistence, and authoritative audit storage require the planned backend phase. The current local prototype intentionally does not claim to provide those security guarantees.

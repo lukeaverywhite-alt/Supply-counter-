@@ -1,0 +1,13 @@
+{
+  "name": "A.R.G.U.S. — Asset Readiness & Gear Utility System",
+  "short_name": "A.R.G.U.S.",
+  "description": "Bethel NJROTC supply readiness and inventory system",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f3ea",
+  "theme_color": "#0b1734",
+  "icons": [
+    { "src": "./argus-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
