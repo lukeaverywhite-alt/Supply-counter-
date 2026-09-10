@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Activity, Archive, ArrowRight, Boxes, ChevronDown, ClipboardCheck, Cloud, History,
   LayoutGrid, Minus, PackagePlus, Plus, RotateCcw, Search, Settings, ShieldCheck,
-  UserRound, Users, Wifi,
+  Users, Wifi,
 } from 'lucide-react'
-import { cadets, inventory as initialInventory } from './data'
-import type { InventoryItem } from './types'
+import { loadData, rollover, saveData, submitCount, transact, withAudit } from './domain'
+import type { AppData, InventoryItem } from './types'
 
 type Tab = 'count' | 'inventory' | 'cadets' | 'activity' | 'more'
 
@@ -19,17 +19,21 @@ const navItems: { id: Tab; label: string; icon: typeof Activity }[] = [
 
 function App() {
   const [tab, setTab] = useState<Tab>('count')
-  const [items, setItems] = useState(initialInventory)
-  const [selectedId, setSelectedId] = useState(1)
-  const [count, setCount] = useState(18)
+  const [data, setData] = useState<AppData>(() => loadData())
+  const items = data.inventory
+  const [selectedId, setSelectedId] = useState(items[0].id)
+  const [count, setCount] = useState(data.session.counts[items[0].id] ?? items[0].onHand)
   const [step, setStep] = useState(1)
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [notice, setNotice] = useState('')
   const selected = items.find((item) => item.id === selectedId) ?? items[0]
   const filtered = useMemo(() => {
     const value = query.toLowerCase().replaceAll('-', '').replaceAll(' ', '')
     return items.filter((item) => `${item.name}${item.category}${item.size}${item.niin}`.toLowerCase().replaceAll('-', '').replaceAll(' ', '').includes(value))
   }, [items, query])
+
+  useEffect(() => saveData(data), [data])
 
   const selectItem = (item: InventoryItem) => {
     setSelectedId(item.id)
@@ -64,18 +68,19 @@ function App() {
           <div className="top-actions"><span className="sync"><Wifi size={15} /> Local draft</span><button className="icon-button" aria-label="Settings"><Settings size={20} /></button><span className="top-avatar">RW</span></div>
         </header>
 
-        {tab === 'count' && <CountView selected={selected} count={count} setCount={setCount} step={step} setStep={setStep} query={query} setQuery={setQuery} filtered={filtered} selectItem={selectItem} />}
-        {tab === 'inventory' && <InventoryView items={filtered} query={query} setQuery={setQuery} onAdd={() => setShowAdd(true)} selectItem={(item) => { selectItem(item); setTab('count') }} />}
-        {tab === 'cadets' && <CadetsView />}
-        {tab === 'activity' && <ActivityView />}
-        {tab === 'more' && <MoreView />}
+        {notice && <button className="notice" onClick={() => setNotice('')} aria-label="Dismiss notification">{notice} ×</button>}
+        {tab === 'count' && <CountView selected={selected} count={count} setCount={(value) => { setCount(value); setData(current => ({ ...current, session: { ...current.session, status: 'draft', counts: { ...current.session.counts, [selected.id]: value } } })) }} step={step} setStep={setStep} query={query} setQuery={setQuery} filtered={filtered} selectItem={selectItem} onSubmit={() => { try { setData(current => submitCount(current)); setNotice('Physical count submitted and inventory reconciled.') } catch (error) { setNotice((error as Error).message) } }} session={data.session} />}
+        {tab === 'inventory' && <InventoryView items={filtered} allItems={items} query={query} setQuery={setQuery} onAdd={() => setShowAdd(true)} selectItem={(item) => { selectItem(item); setTab('count') }} />}
+        {tab === 'cadets' && <CadetsView data={data} onTransaction={(kind, itemId, cadetId) => { try { setData(current => transact(current, itemId, 1, kind, cadetId)); setNotice(`${kind === 'issue' ? 'Issue' : 'Return'} recorded.`) } catch (error) { setNotice((error as Error).message) } }} />}
+        {tab === 'activity' && <ActivityView data={data} />}
+        {tab === 'more' && <MoreView data={data} onRollover={() => { try { setData(current => rollover(current, window.confirm(`Advance from ${current.schoolYear} to ${current.schoolYear + 1}?`))); setNotice('Annual rollover completed.') } catch (error) { setNotice((error as Error).message) } }} />}
       </main>
 
       <nav className="mobile-nav" aria-label="Mobile navigation">
         {navItems.map(({ id, label, icon: Icon }) => <button className={tab === id ? 'active' : ''} key={id} onClick={() => setTab(id)}><Icon size={21} /><span>{label}</span></button>)}
       </nav>
 
-      {showAdd && <AddItemModal onClose={() => setShowAdd(false)} onSave={(item) => { setItems([...items, { ...item, id: Date.now(), issued: 0, status: 'Ready' }]); setShowAdd(false) }} />}
+      {showAdd && <AddItemModal onClose={() => setShowAdd(false)} onSave={(item) => { const created = { ...item, id: crypto.randomUUID(), issued: 0, status: 'Ready' as const }; setData(current => withAudit({ ...current, inventory: [...current.inventory, created] }, 'item.created', `Created ${created.name}`, created.id)); setShowAdd(false) }} />}
     </div>
   )
 }
@@ -91,9 +96,10 @@ function pageTitle(tab: Tab) {
 type CountProps = {
   selected: InventoryItem; count: number; setCount: (value: number) => void; step: number; setStep: (value: number) => void
   query: string; setQuery: (value: string) => void; filtered: InventoryItem[]; selectItem: (item: InventoryItem) => void
+  onSubmit: () => void; session: AppData['session']
 }
 
-function CountView({ selected, count, setCount, step, setStep, query, setQuery, filtered, selectItem }: CountProps) {
+function CountView({ selected, count, setCount, step, setStep, query, setQuery, filtered, selectItem, onSubmit, session }: CountProps) {
   const difference = count - selected.onHand
   const chooseCustomStep = () => {
     const response = window.prompt('Enter a count increment greater than zero', String(step))
@@ -104,7 +110,7 @@ function CountView({ selected, count, setCount, step, setStep, query, setQuery, 
   return <div className="content count-page">
     <section className="hero-row">
       <div><div className="section-kicker"><span /><b>ACTIVE SESSION</b><span /></div><h2>Count with confidence.</h2><p>Every tap is saved to this draft. Official inventory changes only after review.</p></div>
-      <div className="session-chip"><span className="pulse" /><div><small>FALL INVENTORY</small><strong>Session #024</strong></div><ChevronDown size={16} /></div>
+      <div className="session-chip"><span className="pulse" /><div><small>{session.status.toUpperCase()}</small><strong>{session.name}</strong></div><ChevronDown size={16} /></div>
     </section>
 
     <div className="search-wrap">
@@ -130,16 +136,17 @@ function CountView({ selected, count, setCount, step, setStep, query, setQuery, 
         <div className="stat-row"><span>Physical count<small>Combined session</small></span><strong>{count}</strong></div>
         <div className={difference === 0 ? 'difference match' : 'difference warning'}><span>{difference === 0 ? <ShieldCheck /> : <Activity />}</span><div><small>DIFFERENCE</small><strong>{difference > 0 ? '+' : ''}{difference} units</strong><p>{difference === 0 ? 'Inventory matches the record.' : 'Administrator review required.'}</p></div></div>
         <div className="contributors"><div className="contributor-avatars"><span>RW</span><span>KM</span><span>+1</span></div><p><strong>3 staff counting</strong><br/>Updated just now</p><Cloud size={18} /></div>
-        <button className="primary-button">Review & submit <ArrowRight size={18} /></button>
+        <button className="primary-button" onClick={onSubmit}>Review & submit <ArrowRight size={18} /></button>
         <p className="safe-note"><ShieldCheck size={14} /> Draft only—official inventory is unchanged</p>
       </aside>
     </div>
   </div>
 }
 
-function InventoryView({ items, query, setQuery, onAdd, selectItem }: { items: InventoryItem[]; query: string; setQuery: (v: string) => void; onAdd: () => void; selectItem: (i: InventoryItem) => void }) {
+function InventoryView({ items, allItems, query, setQuery, onAdd, selectItem }: { items: InventoryItem[]; allItems: InventoryItem[]; query: string; setQuery: (v: string) => void; onAdd: () => void; selectItem: (i: InventoryItem) => void }) {
+  const totals = allItems.reduce((sum, item) => ({ onHand: sum.onHand + item.onHand, issued: sum.issued + item.issued, attention: sum.attention + (item.status === 'Ready' ? 0 : 1) }), { onHand: 0, issued: 0, attention: 0 })
   return <div className="content"><section className="page-intro"><div><p className="eyebrow">SERVICEABLE INVENTORY</p><h2>Every asset, accounted for.</h2><p>Search by item, size, category, or CDMIS NIIN.</p></div><button className="gold-button" onClick={onAdd}><PackagePlus size={18} /> Add item</button></section>
-    <div className="summary-grid"><Summary label="On hand" value="86" detail="5 tracked variants" /><Summary label="Issued" value="75" detail="Across active cadets" /><Summary label="Needs attention" value="2" detail="Low stock or count due" accent /></div>
+    <div className="summary-grid"><Summary label="On hand" value={String(totals.onHand)} detail={`${allItems.length} tracked variants`} /><Summary label="Issued" value={String(totals.issued)} detail="Across active cadets" /><Summary label="Needs attention" value={String(totals.attention)} detail="Low stock or count due" accent /></div>
     <div className="table-card"><div className="table-tools"><div className="inline-search"><Search size={18}/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search inventory…" /></div><button><Settings size={17}/> Filters</button></div>
       <div className="inventory-list">{items.map((item) => <button className="inventory-row" key={item.id} onClick={() => selectItem(item)}><span className="category-mark">{item.name.slice(0,2).toUpperCase()}</span><span className="item-name"><strong>{item.name}</strong><small>{item.category} · {item.niin}</small></span><span><small>SIZE</small><b>{item.size}</b></span><span><small>ON HAND</small><b>{item.onHand}</b></span><span><small>ISSUED</small><b>{item.issued}</b></span><em className={item.status === 'Ready' ? 'ready' : 'attention'}>{item.status}</em><ArrowRight size={18}/></button>)}</div>
     </div>
@@ -150,23 +157,24 @@ function Summary({ label, value, detail, accent = false }: { label: string; valu
   return <div className={accent ? 'summary-card accent' : 'summary-card'}><small>{label.toUpperCase()}</small><strong>{value}</strong><p>{detail}</p></div>
 }
 
-function CadetsView() {
-  return <div className="content"><section className="page-intro"><div><p className="eyebrow">PERSONNEL ACCOUNTABILITY</p><h2>Cadet property records.</h2><p>Fictional records are shown in this front-end preview.</p></div><button className="gold-button"><UserRound size={18}/> Add cadet</button></section><div className="table-card"><div className="table-tools"><div className="inline-search"><Search size={18}/><input placeholder="Search cadet name…" /></div></div><div className="cadet-grid">{cadets.map(cadet => <button className="cadet-card" key={cadet.id}><span className="large-avatar">{cadet.initials}</span><span><strong>{cadet.name}</strong><small>{cadet.level} · {cadet.configuration}</small></span><div><b>{cadet.items}</b><small>Issued items</small></div><em className={cadet.status === 'Clear' ? 'ready' : 'attention'}>{cadet.status}</em><ArrowRight size={18}/></button>)}</div></div></div>
+function CadetsView({ data, onTransaction }: { data: AppData; onTransaction: (kind: 'issue' | 'return', itemId: string, cadetId: string) => void }) {
+  const [selectedCadet, setSelectedCadet] = useState(data.cadets[0]?.id ?? '')
+  const [itemId, setItemId] = useState(data.inventory[0]?.id ?? '')
+  return <div className="content"><section className="page-intro"><div><p className="eyebrow">PERSONNEL ACCOUNTABILITY · {data.schoolYear}</p><h2>Cadet property records.</h2><p>Issue and return quantities update both inventory and cadet totals.</p></div><div className="transaction-bar"><select aria-label="Cadet" value={selectedCadet} onChange={e => setSelectedCadet(e.target.value)}>{data.cadets.filter(c => c.active).map(c => <option value={c.id} key={c.id}>{c.name}</option>)}</select><select aria-label="Transaction item" value={itemId} onChange={e => setItemId(e.target.value)}>{data.inventory.map(i => <option value={i.id} key={i.id}>{i.name} · {i.size}</option>)}</select><button className="gold-button" onClick={() => onTransaction('issue', itemId, selectedCadet)}>Issue 1</button><button onClick={() => onTransaction('return', itemId, selectedCadet)}>Return 1</button></div></section><div className="table-card"><div className="cadet-grid">{data.cadets.map(cadet => <button className="cadet-card" key={cadet.id}><span className="large-avatar">{cadet.initials}</span><span><strong>{cadet.name}</strong><small>{cadet.level} · {cadet.configuration}{!cadet.active && ' · Archived'}</small></span><div><b>{cadet.items}</b><small>Issued items</small></div><em className={cadet.status === 'Clear' ? 'ready' : 'attention'}>{cadet.status}</em><ArrowRight size={18}/></button>)}</div></div></div>
 }
 
-function ActivityView() {
-  const events = [['Physical count opened','Navy PT Shirt · Medium','RW','Just now'],['Issued bundle','PT Gear bundle to Alex Morgan','KM','14 min ago'],['Return recorded','Black Oxford Shoes · Serviceable','RW','1 hr ago'],['Inventory reconciled','White Undershirt · No discrepancy','AD','Yesterday']]
-  return <div className="content"><section className="page-intro"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Nothing changes silently.</h2><p>A clear record of actions, people, and outcomes.</p></div></section><div className="timeline">{events.map(([title,detail,user,time], i) => <div className="event" key={title}><span className="event-icon">{i === 0 ? <ClipboardCheck/> : i === 1 ? <PackagePlus/> : i === 2 ? <RotateCcw/> : <ShieldCheck/>}</span><div><strong>{title}</strong><p>{detail}</p></div><span className="event-user">{user}</span><time>{time}</time></div>)}</div></div>
+function ActivityView({ data }: { data: AppData }) {
+  return <div className="content"><section className="page-intro"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Nothing changes silently.</h2><p>A local, append-only record of actions and outcomes.</p></div></section><div className="timeline">{data.audit.length ? data.audit.map(event => <div className="event" key={event.id}><span className="event-icon"><History/></span><div><strong>{event.summary}</strong><p>{event.type}</p></div><span className="event-user">{event.actor.split(' ').map(v => v[0]).join('')}</span><time>{new Date(event.at).toLocaleString()}</time></div>) : <div className="empty-state">No activity yet. Completed actions will appear here.</div>}</div></div>
 }
 
-function MoreView() {
-  const options = [{ icon: PackagePlus, title: 'Issue bundles', desc: 'Build and manage standard uniform sets' },{ icon: Archive, title: 'Still needed', desc: 'Track incomplete cadet issues' },{ icon: Users, title: 'Roster administration', desc: 'Import, edit, and prepare annual rollover' },{ icon: ShieldCheck, title: 'Roles & access', desc: 'Manage authorized supply staff' },{ icon: History, title: 'Audit history', desc: 'Review protected transaction records' },{ icon: Settings, title: 'System settings', desc: 'Configure sizes, categories, and alerts' }]
-  return <div className="content"><section className="page-intro"><div><p className="eyebrow">ADMINISTRATION</p><h2>Command center.</h2><p>Protected tools for keeping A.R.G.U.S. ready.</p></div></section><div className="command-grid">{options.map(({icon:Icon,title,desc}) => <button key={title}><span><Icon/></span><div><strong>{title}</strong><p>{desc}</p></div><ArrowRight/></button>)}</div></div>
+function MoreView({ data, onRollover }: { data: AppData; onRollover: () => void }) {
+  const options = [{ icon: PackagePlus, title: 'Issue bundles', desc: `${data.bundles.length} configured uniform set` },{ icon: Archive, title: 'Still needed', desc: 'Track incomplete cadet issues' },{ icon: Users, title: 'Roster administration', desc: 'Import, edit, and prepare annual rollover' },{ icon: ShieldCheck, title: 'Rollover safeguards', desc: 'Active counts must be resolved first' },{ icon: History, title: 'Audit history', desc: `${data.audit.length} protected local events` },{ icon: Settings, title: 'System settings', desc: 'Configure sizes, categories, and alerts' }]
+  return <div className="content"><section className="page-intro"><div><p className="eyebrow">ADMINISTRATION · SCHOOL YEAR {data.schoolYear}</p><h2>Command center.</h2><p>All data is stored offline on this device.</p></div><button className="gold-button" onClick={onRollover}>Begin annual rollover</button></section><div className="command-grid">{options.map(({icon:Icon,title,desc}) => <button key={title}><span><Icon/></span><div><strong>{title}</strong><p>{desc}</p></div><ArrowRight/></button>)}</div></div>
 }
 
 function AddItemModal({ onClose, onSave }: { onClose: () => void; onSave: (item: Omit<InventoryItem, 'id' | 'issued' | 'status'>) => void }) {
   const [name, setName] = useState(''); const [category, setCategory] = useState(''); const [size, setSize] = useState(''); const [niin, setNiin] = useState(''); const [qty, setQty] = useState(0)
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal" onSubmit={(e) => { e.preventDefault(); onSave({ name, category, size: size || 'No size', niin: niin || 'Not assigned', onHand: qty }) }} onMouseDown={(e) => e.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">INVENTORY ADMINISTRATION</p><h2>Add a new item</h2></div><button type="button" onClick={onClose}>×</button></div><p>Create the core item now. Sizes and ordering details remain editable.</p><label>Item name<input required value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Navy PT Shirt" /></label><div className="form-grid"><label>Category<input required value={category} onChange={e => setCategory(e.target.value)} placeholder="PT Gear" /></label><label>Size or variant<input value={size} onChange={e => setSize(e.target.value)} placeholder="Medium" /></label><label>CDMIS NIIN<input value={niin} onChange={e => setNiin(e.target.value)} placeholder="Optional" /></label><label>Initial on hand<input type="number" min="0" value={qty} onChange={e => setQty(Number(e.target.value))} /></label></div><div className="modal-actions"><button type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit">Add item <ArrowRight size={17}/></button></div></form></div>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal" onSubmit={(e) => { e.preventDefault(); const resolvedSize = size || 'No size'; onSave({ name, category, sizes: resolvedSize.split(',').map(value => value.trim()).filter(Boolean), size: resolvedSize.split(',')[0].trim(), niin: niin || 'Not assigned', onHand: qty, reorderAt: 0, countBy: 1 }) }} onMouseDown={(e) => e.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">INVENTORY ADMINISTRATION</p><h2>Add a new item</h2></div><button type="button" onClick={onClose}>×</button></div><p>Create the core item now. Sizes and ordering details remain editable.</p><label>Item name<input required value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Navy PT Shirt" /></label><div className="form-grid"><label>Category<input required value={category} onChange={e => setCategory(e.target.value)} placeholder="PT Gear" /></label><label>Size or variant<input value={size} onChange={e => setSize(e.target.value)} placeholder="Medium" /></label><label>CDMIS NIIN<input value={niin} onChange={e => setNiin(e.target.value)} placeholder="Optional" /></label><label>Initial on hand<input type="number" min="0" value={qty} onChange={e => setQty(Number(e.target.value))} /></label></div><div className="modal-actions"><button type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit">Add item <ArrowRight size={17}/></button></div></form></div>
 }
 
 export default App
