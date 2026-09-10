@@ -37,3 +37,64 @@ main { min-width:0; }.topbar { height:92px; padding:19px 34px; display:flex; ali
 @media (max-width: 900px){.app-shell{grid-template-columns:78px 1fr}.sidebar{padding:22px 10px}.brand{margin:0 auto 38px}.brand img{width:44px}.brand div,.nav-item span,.system-card,.profile span:nth-child(2),.profile svg{display:none}.nav-item{justify-content:center;padding:13px}.nav-dot{position:absolute;margin:0;right:13px}.profile{justify-content:center}.count-layout{grid-template-columns:1fr}.review-card{display:grid;grid-template-columns:1fr 1fr;gap:0 15px}.review-card .card-title,.review-card .difference,.review-card .contributors,.review-card .primary-button,.review-card .safe-note{grid-column:1/-1}}
 @media (max-width: 680px){body{background:#f6f3eb}.app-shell{display:block;padding-bottom:72px}.sidebar{display:none}.topbar{height:72px;padding:14px 18px}.topbar h1{font-size:21px}.sync,.icon-button{display:none}.top-avatar{display:grid}.content{padding:22px 16px}.hero-row,.page-intro{align-items:flex-start}.hero-row h2,.page-intro h2{font-size:27px}.hero-row>div:first-child p{max-width:270px}.session-chip{display:none}.search-wrap{height:49px}.search-wrap kbd{display:none}.count-card{padding:19px 17px}.item-heading{align-items:flex-start}.item-heading .text-button{font-size:0}.item-heading .text-button:after{content:'Change';font-size:10px}.count-display{padding:28px 0 23px}.count-display strong{font-size:70px}.stone-button{height:65px;flex-direction:column;gap:3px}.stone-button span{font-size:10px}.review-card{display:block}.summary-grid{grid-template-columns:1fr 1fr}.summary-card:last-child{grid-column:1/-1}.table-tools{gap:8px}.inline-search{min-width:0;flex:1}.table-tools>button{font-size:0;padding:8px}.inventory-row{grid-template-columns:39px 1fr 65px 18px}.inventory-row>span:nth-of-type(3),.inventory-row>span:nth-of-type(5),.inventory-row em{display:none}.cadet-card{grid-template-columns:42px 1fr 20px}.cadet-card div,.cadet-card em{display:none}.command-grid{grid-template-columns:1fr}.event{grid-template-columns:38px 1fr 60px}.event-user{display:none}.event time{font-size:8px}.mobile-nav{position:fixed;z-index:10;bottom:0;left:0;right:0;height:68px;padding-bottom:env(safe-area-inset-bottom);display:flex;justify-content:space-around;background:rgba(11,23,52,.97);border-top:1px solid rgba(198,156,73,.4);box-shadow:0 -8px 25px rgba(7,15,31,.2)}.mobile-nav button{flex:1;border:0;background:transparent;color:#8e9bb2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:8px}.mobile-nav button.active{color:#e0bb6e}.form-grid{grid-template-columns:1fr}.modal{padding:20px}.gold-button{font-size:0}.gold-button svg{margin:0}}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+
+/* Hellenic hologram layer: classical materials framed by a restrained sci-fi UI. */
+:root { --cyan:#64e7f3; --cyan-soft:rgba(100,231,243,.18); --bronze:#a96f35; --ivory:#fffdf6; }
+body { overflow-x:hidden; background:
+  radial-gradient(circle at 81% 8%,rgba(77,211,229,.13),transparent 25%),
+  radial-gradient(circle at 57% 72%,rgba(196,154,70,.1),transparent 30%),
+  linear-gradient(135deg,#f7f4eb 0%,#eef2f0 48%,#f4f1e8 100%); }
+.app-shell { position:relative; isolation:isolate; }
+.main-stage { position:relative; z-index:1; }
+.aether-field { position:fixed; z-index:0; inset:0 0 0 250px; overflow:hidden; pointer-events:none; }
+.aether-field:before { content:'ΑΡΓΟΣ  ·  ΔΕΛΤΑ  ·  ΩΜΕΓΑ  ·  ΝΙΚΗ  ·  ΑΘΗΝΑ'; position:absolute; top:110px; right:-45px; color:rgba(15,61,83,.055); font:700 32px Marcellus,serif; letter-spacing:13px; transform:rotate(90deg); transform-origin:right top; white-space:nowrap; }
+.aether-field:after { content:''; position:absolute; inset:0; opacity:.18; background-image:linear-gradient(rgba(27,129,146,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(27,129,146,.12) 1px,transparent 1px); background-size:72px 72px; mask-image:radial-gradient(circle at 80% 18%,black,transparent 52%); }
+.aether-field span { position:absolute; width:4px; height:4px; border-radius:50%; background:var(--cyan); box-shadow:0 0 14px 3px rgba(100,231,243,.55); animation:constellation-drift 8s ease-in-out infinite; }
+.aether-field span:nth-child(1){top:18%;left:67%}.aether-field span:nth-child(2){top:39%;left:88%;animation-delay:-2.8s}.aether-field span:nth-child(3){top:72%;left:59%;animation-delay:-5.2s}
+@keyframes constellation-drift { 0%,100%{opacity:.25;transform:translateY(0) scale(.8)} 50%{opacity:.8;transform:translateY(-12px) scale(1.15)} }
+
+.sidebar { z-index:3; overflow:hidden; background:
+  radial-gradient(circle at 50% -10%,rgba(78,224,239,.14),transparent 31%),
+  linear-gradient(165deg,#07132c 0%,#101f40 63%,#172846 100%); box-shadow:10px 0 45px rgba(4,13,31,.13); }
+.sidebar:before { content:''; position:absolute; inset:9px; border:1px solid rgba(204,167,91,.16); clip-path:polygon(0 0,100% 0,100% 13%,97% 16%,97% 84%,100% 87%,100% 100%,0 100%,0 87%,3% 84%,3% 16%,0 13%); pointer-events:none; }
+.brand img { border:1px solid rgba(100,231,243,.4); box-shadow:0 0 22px rgba(100,231,243,.16),0 7px 20px #020714; }
+.brand:after { content:'✦  Ω  ✦'; position:absolute; top:55px; left:5px; color:rgba(205,170,99,.55); font:9px Marcellus,serif; letter-spacing:7px; }
+.nav-item { position:relative; overflow:hidden; transition:color .25s,background .25s,transform .25s; }
+.nav-item:hover { transform:translateX(3px); }
+.nav-item.active { border:1px solid rgba(100,231,243,.12); box-shadow:inset 2px 0 #c49a46,0 0 18px rgba(79,218,234,.06); }
+.nav-item.active:after { content:'Δ  Ω  Λ'; position:absolute; right:10px; bottom:2px; color:rgba(100,231,243,.34); font:6px Marcellus,serif; letter-spacing:3px; }
+
+.topbar { position:relative; z-index:2; border-bottom-color:rgba(135,114,70,.28); box-shadow:0 9px 30px rgba(12,31,49,.04); }
+.topbar:after { content:''; position:absolute; height:3px; left:34px; right:34px; bottom:-2px; opacity:.42; background:repeating-linear-gradient(90deg,var(--gold) 0 8px,transparent 8px 12px,var(--cyan) 12px 14px,transparent 14px 22px); }
+.topbar h1,.hero-row h2,.page-intro h2 { text-shadow:0 0 22px rgba(57,185,202,.1); }
+.section-kicker span { background:linear-gradient(90deg,transparent,#c49a46,var(--cyan)); box-shadow:0 0 8px rgba(100,231,243,.32); }
+.session-chip,.search-wrap { backdrop-filter:blur(18px); background:linear-gradient(135deg,rgba(255,253,248,.92),rgba(233,247,247,.78)); border-color:rgba(84,155,164,.3); box-shadow:0 9px 26px rgba(17,47,62,.07),inset 0 0 0 1px rgba(255,255,255,.7); }
+.search-wrap:focus-within { border-color:rgba(55,188,205,.72); box-shadow:0 0 0 3px rgba(100,231,243,.12),0 12px 32px rgba(17,47,62,.1); }
+
+.marble-card,.review-card,.table-card,.timeline,.summary-card { border-color:rgba(151,130,88,.3); background:
+  linear-gradient(120deg,rgba(255,255,255,.86),rgba(255,253,247,.94)),
+  repeating-linear-gradient(120deg,transparent 0 38px,rgba(145,154,158,.1) 39px 40px,transparent 41px 79px); box-shadow:0 18px 50px rgba(19,37,51,.08),inset 0 1px rgba(255,255,255,.8); }
+.count-card:after { content:'◇  ΑΘΗΝΑ  ◇  ΝΙΚΗ  ◇  ΑΡΓΟΣ  ◇'; position:absolute; left:0; right:0; bottom:0; height:8px; overflow:hidden; text-align:center; color:rgba(153,104,41,.52); background:rgba(210,180,117,.13); font:6px/8px Marcellus,serif; letter-spacing:7px; }
+.item-icon,.category-mark,.large-avatar { background:linear-gradient(145deg,#172c54,#07142f); border:1px solid rgba(100,231,243,.3); box-shadow:inset 0 0 18px rgba(81,220,237,.08),0 0 18px rgba(31,174,193,.08); }
+.count-display strong { animation:number-arrival .38s cubic-bezier(.2,.9,.3,1); }
+@keyframes number-arrival { from{opacity:.35;transform:translateY(8px);filter:blur(3px)} to{opacity:1;transform:none;filter:none} }
+
+.primary-button,.gold-button,.stone-button,.command-grid button,.icon-button,.table-tools>button { position:relative; overflow:hidden; transition:transform .2s ease,box-shadow .25s ease,border-color .25s ease,filter .25s ease; }
+.primary-button:before,.gold-button:before,.stone-button:before,.command-grid button:before { content:'Δ · Ω · Λ · Ψ'; position:absolute; inset:3px 8px auto; height:7px; color:rgba(100,231,243,.55); font:5px/7px Marcellus,serif; letter-spacing:5px; text-align:center; opacity:0; transform:scaleX(.4); transition:opacity .24s,transform .34s,letter-spacing .34s; pointer-events:none; }
+.gold-button:before,.stone-button.minus:before { color:rgba(72,74,70,.45); }
+.primary-button:hover:before,.gold-button:hover:before,.stone-button:hover:before,.command-grid button:hover:before { opacity:1; transform:scaleX(1); letter-spacing:7px; }
+.primary-button:hover,.gold-button:hover,.stone-button:hover,.command-grid button:hover { transform:translateY(-2px); filter:saturate(1.08); }
+.primary-button { background:linear-gradient(110deg,#08162f,#12365a 55%,#0a1a38); border:1px solid rgba(100,231,243,.34); box-shadow:0 4px 0 #050d1f,0 0 18px rgba(50,199,218,.12),inset 0 0 18px rgba(100,231,243,.06); }
+.gold-button { background:linear-gradient(135deg,#e3c070,#a96f35); border:1px solid #f0d594; box-shadow:0 3px 0 #805021,0 8px 20px rgba(129,82,27,.14); }
+.stone-button.minus { background:linear-gradient(135deg,#fffefa,#dedbd4 45%,#f7f5ee); }
+.stone-button.plus { border-color:rgba(100,231,243,.32); box-shadow:0 5px 0 #050d20,0 10px 22px rgba(5,13,32,.22),inset 0 0 20px rgba(100,231,243,.07); }
+.command-grid button:hover { border-color:rgba(57,189,204,.65); box-shadow:0 10px 28px rgba(25,94,108,.11),inset 0 0 22px rgba(100,231,243,.06); }
+.inventory-row,.cadet-card,.event { transition:background .22s,transform .22s; }
+.inventory-row:hover,.cadet-card:hover { background:linear-gradient(90deg,rgba(206,169,91,.1),rgba(100,231,243,.08)); transform:translateX(2px); }
+.pulse { animation:oracle-pulse 2.4s ease-out infinite; }
+@keyframes oracle-pulse { 0%,100%{box-shadow:0 0 0 3px rgba(224,165,72,.12),0 0 7px #e0a548} 50%{box-shadow:0 0 0 7px rgba(100,231,243,0),0 0 15px var(--cyan);background:var(--cyan)} }
+
+button:focus-visible,input:focus-visible { outline:2px solid #16899a; outline-offset:3px; }
+@media (max-width:900px){.aether-field{left:78px}.topbar:after{left:20px;right:20px}}
+@media (max-width:680px){.aether-field{left:0}.topbar:after{left:16px;right:16px}.aether-field:before{display:none}.mobile-nav button{position:relative}.mobile-nav button.active:after{content:'◇';position:absolute;top:2px;color:var(--cyan);text-shadow:0 0 8px var(--cyan)}.gold-button:before{display:none}}
+@media (prefers-reduced-motion:reduce){.aether-field span,.count-display strong,.pulse{animation:none!important}}

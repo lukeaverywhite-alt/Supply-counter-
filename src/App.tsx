@@ -39,6 +39,7 @@ function App() {
 
   return (
     <div className="app-shell">
+      <div className="aether-field" aria-hidden="true"><span /><span /><span /></div>
       <aside className="sidebar">
         <Brand />
         <nav aria-label="Primary navigation">
@@ -57,7 +58,7 @@ function App() {
         </button>
       </aside>
 
-      <main>
+      <main className="main-stage">
         <header className="topbar">
           <div><p className="eyebrow">BETHEL NJROTC SUPPLY</p><h1>{pageTitle(tab)}</h1></div>
           <div className="top-actions"><span className="sync"><Wifi size={15} /> Local draft</span><button className="icon-button" aria-label="Settings"><Settings size={20} /></button><span className="top-avatar">RW</span></div>
