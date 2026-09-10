@@ -10,6 +10,6 @@ export const inventory: InventoryItem[] = [
 
 export const cadets: Cadet[] = [
   { id: 1, initials: 'AM', name: 'Alex Morgan', level: 'NS1', configuration: 'Standard A', items: 6, status: 'Still needed' },
-  { id: 2, initials: 'JC', name: 'Jordan Carter', level: 'NS3', configuration: 'Standard B', items: 8, status: 'Clear' },
-  { id: 3, initials: 'TS', name: 'Taylor Sample', level: 'NS4', configuration: 'Standard A', items: 3, status: 'Return pending' },
+  { id: 2, initials: 'JC', name: 'Jordan Carter', level: 'NS3', configuration: 'Standard B', items: 38, status: 'Clear' },
+  { id: 3, initials: 'TS', name: 'Taylor Sample', level: 'NS4', configuration: 'Standard A', items: 31, status: 'Return pending' },
 ]
