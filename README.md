@@ -33,9 +33,11 @@ npm run test:deploy
 
 ## GitHub Pages deployment
 
-The `Deploy A.R.G.U.S. to GitHub Pages` workflow verifies and publishes the app whenever changes reach the `main` branch. It can also be started manually from the repository's **Actions** tab.
+The `Verify and deploy A.R.G.U.S.` workflow verifies and publishes the app whenever changes reach the `main` branch. It can also be started manually from the repository's **Actions** tab.
 
-Before the first deployment, open **Settings → Pages** in GitHub and set **Source** to **GitHub Actions**. The workflow then:
+GitHub does not permit a workflow's built-in `GITHUB_TOKEN` to enable Pages on a repository where Pages has never been configured. For the first deployment, either open **Settings → Pages** and set **Source** to **GitHub Actions**, or create a fine-grained personal access token with **Administration: write** and **Pages: write** access to this repository and save it as the repository Actions secret `PAGES_TOKEN`. The workflow uses that secret to enable Pages automatically; after the site exists, its built-in token handles normal deployments.
+
+The workflow then:
 
 1. installs the locked dependencies with `npm ci` on Node.js 24;
 2. runs the test and lint suites;
