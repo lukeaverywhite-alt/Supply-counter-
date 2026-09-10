@@ -12,16 +12,10 @@ export const seedData: AppData = {
   ],
   cadets: [
     { id: 'cadet-am', initials: 'AM', name: 'Alex Morgan', level: 'NS1', configuration: 'Standard A', items: 6, status: 'Still needed', active: true, schoolYear: 2026 },
-    { id: 'cadet-jc', initials: 'JC', name: 'Jordan Carter', level: 'NS3', configuration: 'Standard B', items: 8, status: 'Clear', active: true, schoolYear: 2026 },
-    { id: 'cadet-ts', initials: 'TS', name: 'Taylor Sample', level: 'NS4', configuration: 'Standard A', items: 3, status: 'Return pending', active: true, schoolYear: 2026 },
+    { id: 'cadet-jc', initials: 'JC', name: 'Jordan Carter', level: 'NS3', configuration: 'Standard B', items: 38, status: 'Clear', active: true, schoolYear: 2026 },
+    { id: 'cadet-ts', initials: 'TS', name: 'Taylor Sample', level: 'NS4', configuration: 'Standard A', items: 31, status: 'Return pending', active: true, schoolYear: 2026 },
   ],
   bundles: [{ id: 'bundle-pt', name: 'PT Gear bundle', lines: [{ itemId: 'shirt-pt-m', quantity: 1 }, { itemId: 'shorts-pt-m', quantity: 1 }] }],
   session: { id: 'session-024', name: 'Fall inventory', status: 'draft', counts: { 'shirt-pt-m': 18 }, startedAt: '2026-09-10T09:00:00.000Z' },
   audit: [],
 }
-
-export const cadets: Cadet[] = [
-  { id: 1, initials: 'AM', name: 'Alex Morgan', level: 'NS1', configuration: 'Standard A', items: 6, status: 'Still needed' },
-  { id: 2, initials: 'JC', name: 'Jordan Carter', level: 'NS3', configuration: 'Standard B', items: 38, status: 'Clear' },
-  { id: 3, initials: 'TS', name: 'Taylor Sample', level: 'NS4', configuration: 'Standard A', items: 31, status: 'Return pending' },
-]
