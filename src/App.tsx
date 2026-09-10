@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react'
 import {
   Activity, Archive, ArrowRight, Boxes, ChevronDown, ClipboardCheck, Cloud, History,
   LayoutGrid, Minus, PackagePlus, Plus, RotateCcw, Search, Settings, ShieldCheck,
-  UserRound, Users, Wifi,
+  UserRound, Users, Wifi, LogOut, FileUp, CalendarRange, KeyRound, X, Check, Shirt,
 } from 'lucide-react'
 import { cadets, inventory as initialInventory } from './data'
 import type { InventoryItem } from './types'
 
 type Tab = 'count' | 'inventory' | 'cadets' | 'activity' | 'more'
+type Panel = 'signin' | 'cadet' | 'issue' | 'return' | 'review' | 'bundles' | 'needed' | 'roster' | 'rollover' | 'import' | 'roles' | null
 
 const navItems: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: 'count', label: 'Count', icon: ClipboardCheck },
@@ -25,6 +26,8 @@ function App() {
   const [step, setStep] = useState(1)
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [panel, setPanel] = useState<Panel>(null)
+  const [cadetQuery, setCadetQuery] = useState('')
   const selected = items.find((item) => item.id === selectedId) ?? items[0]
   const filtered = useMemo(() => {
     const value = query.toLowerCase().replaceAll('-', '').replaceAll(' ', '')
@@ -53,7 +56,7 @@ function App() {
           <span className="pulse" /><strong>Prototype mode</strong>
           <p>Local preview only</p>
         </div>
-        <button className="profile">
+        <button className="profile" onClick={() => setPanel('signin')}>
           <span className="avatar">RW</span><span><strong>Riley West</strong><small>Supply Staff</small></span><ChevronDown size={16} />
         </button>
       </aside>
@@ -64,11 +67,11 @@ function App() {
           <div className="top-actions"><span className="sync"><Wifi size={15} /> Local draft</span><button className="icon-button" aria-label="Settings"><Settings size={20} /></button><span className="top-avatar">RW</span></div>
         </header>
 
-        {tab === 'count' && <CountView selected={selected} count={count} setCount={setCount} step={step} setStep={setStep} query={query} setQuery={setQuery} filtered={filtered} selectItem={selectItem} />}
+        {tab === 'count' && <CountView selected={selected} count={count} setCount={setCount} step={step} setStep={setStep} query={query} setQuery={setQuery} filtered={filtered} selectItem={selectItem} onReview={() => setPanel('review')} />}
         {tab === 'inventory' && <InventoryView items={filtered} query={query} setQuery={setQuery} onAdd={() => setShowAdd(true)} selectItem={(item) => { selectItem(item); setTab('count') }} />}
-        {tab === 'cadets' && <CadetsView />}
+        {tab === 'cadets' && <CadetsView query={cadetQuery} setQuery={setCadetQuery} onOpen={() => setPanel('cadet')} />}
         {tab === 'activity' && <ActivityView />}
-        {tab === 'more' && <MoreView />}
+        {tab === 'more' && <MoreView onOpen={setPanel} />}
       </main>
 
       <nav className="mobile-nav" aria-label="Mobile navigation">
@@ -76,6 +79,7 @@ function App() {
       </nav>
 
       {showAdd && <AddItemModal onClose={() => setShowAdd(false)} onSave={(item) => { setItems([...items, { ...item, id: Date.now(), issued: 0, status: 'Ready' }]); setShowAdd(false) }} />}
+      {panel && <DemoPanel panel={panel} count={count} official={selected.onHand} onClose={() => setPanel(null)} onOpen={setPanel} />}
     </div>
   )
 }
@@ -91,9 +95,10 @@ function pageTitle(tab: Tab) {
 type CountProps = {
   selected: InventoryItem; count: number; setCount: (value: number) => void; step: number; setStep: (value: number) => void
   query: string; setQuery: (value: string) => void; filtered: InventoryItem[]; selectItem: (item: InventoryItem) => void
+  onReview: () => void
 }
 
-function CountView({ selected, count, setCount, step, setStep, query, setQuery, filtered, selectItem }: CountProps) {
+function CountView({ selected, count, setCount, step, setStep, query, setQuery, filtered, selectItem, onReview }: CountProps) {
   const difference = count - selected.onHand
   const chooseCustomStep = () => {
     const response = window.prompt('Enter a count increment greater than zero', String(step))
@@ -130,7 +135,7 @@ function CountView({ selected, count, setCount, step, setStep, query, setQuery, 
         <div className="stat-row"><span>Physical count<small>Combined session</small></span><strong>{count}</strong></div>
         <div className={difference === 0 ? 'difference match' : 'difference warning'}><span>{difference === 0 ? <ShieldCheck /> : <Activity />}</span><div><small>DIFFERENCE</small><strong>{difference > 0 ? '+' : ''}{difference} units</strong><p>{difference === 0 ? 'Inventory matches the record.' : 'Administrator review required.'}</p></div></div>
         <div className="contributors"><div className="contributor-avatars"><span>RW</span><span>KM</span><span>+1</span></div><p><strong>3 staff counting</strong><br/>Updated just now</p><Cloud size={18} /></div>
-        <button className="primary-button">Review & submit <ArrowRight size={18} /></button>
+        <button className="primary-button" onClick={onReview}>Review & submit <ArrowRight size={18} /></button>
         <p className="safe-note"><ShieldCheck size={14} /> Draft only—official inventory is unchanged</p>
       </aside>
     </div>
@@ -150,8 +155,9 @@ function Summary({ label, value, detail, accent = false }: { label: string; valu
   return <div className={accent ? 'summary-card accent' : 'summary-card'}><small>{label.toUpperCase()}</small><strong>{value}</strong><p>{detail}</p></div>
 }
 
-function CadetsView() {
-  return <div className="content"><section className="page-intro"><div><p className="eyebrow">PERSONNEL ACCOUNTABILITY</p><h2>Cadet property records.</h2><p>Fictional records are shown in this front-end preview.</p></div><button className="gold-button"><UserRound size={18}/> Add cadet</button></section><div className="table-card"><div className="table-tools"><div className="inline-search"><Search size={18}/><input placeholder="Search cadet name…" /></div></div><div className="cadet-grid">{cadets.map(cadet => <button className="cadet-card" key={cadet.id}><span className="large-avatar">{cadet.initials}</span><span><strong>{cadet.name}</strong><small>{cadet.level} · {cadet.configuration}</small></span><div><b>{cadet.items}</b><small>Issued items</small></div><em className={cadet.status === 'Clear' ? 'ready' : 'attention'}>{cadet.status}</em><ArrowRight size={18}/></button>)}</div></div></div>
+function CadetsView({ query, setQuery, onOpen }: { query: string; setQuery: (value: string) => void; onOpen: () => void }) {
+  const visible = cadets.filter(cadet => `${cadet.name} ${cadet.level}`.toLowerCase().includes(query.toLowerCase()))
+  return <div className="content"><section className="page-intro"><div><p className="eyebrow">PERSONNEL ACCOUNTABILITY</p><h2>Cadet property records.</h2><p>Fictional records are shown in this front-end preview.</p></div><button className="gold-button"><UserRound size={18}/> Add cadet</button></section><div className="table-card"><div className="table-tools"><div className="inline-search"><Search size={18}/><input aria-label="Search cadets" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search cadet name…" /></div></div><div className="cadet-grid">{visible.map(cadet => <button className="cadet-card" key={cadet.id} onClick={onOpen}><span className="large-avatar">{cadet.initials}</span><span><strong>{cadet.name}</strong><small>{cadet.level} · {cadet.configuration}</small></span><div><b>{cadet.items}</b><small>Issued items</small></div><em className={cadet.status === 'Clear' ? 'ready' : 'attention'}>{cadet.status}</em><ArrowRight size={18}/></button>)}</div></div></div>
 }
 
 function ActivityView() {
@@ -159,10 +165,45 @@ function ActivityView() {
   return <div className="content"><section className="page-intro"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Nothing changes silently.</h2><p>A clear record of actions, people, and outcomes.</p></div></section><div className="timeline">{events.map(([title,detail,user,time], i) => <div className="event" key={title}><span className="event-icon">{i === 0 ? <ClipboardCheck/> : i === 1 ? <PackagePlus/> : i === 2 ? <RotateCcw/> : <ShieldCheck/>}</span><div><strong>{title}</strong><p>{detail}</p></div><span className="event-user">{user}</span><time>{time}</time></div>)}</div></div>
 }
 
-function MoreView() {
-  const options = [{ icon: PackagePlus, title: 'Issue bundles', desc: 'Build and manage standard uniform sets' },{ icon: Archive, title: 'Still needed', desc: 'Track incomplete cadet issues' },{ icon: Users, title: 'Roster administration', desc: 'Import, edit, and prepare annual rollover' },{ icon: ShieldCheck, title: 'Roles & access', desc: 'Manage authorized supply staff' },{ icon: History, title: 'Audit history', desc: 'Review protected transaction records' },{ icon: Settings, title: 'System settings', desc: 'Configure sizes, categories, and alerts' }]
-  return <div className="content"><section className="page-intro"><div><p className="eyebrow">ADMINISTRATION</p><h2>Command center.</h2><p>Protected tools for keeping A.R.G.U.S. ready.</p></div></section><div className="command-grid">{options.map(({icon:Icon,title,desc}) => <button key={title}><span><Icon/></span><div><strong>{title}</strong><p>{desc}</p></div><ArrowRight/></button>)}</div></div>
+function MoreView({ onOpen }: { onOpen: (panel: Panel) => void }) {
+  const options: { icon: typeof Activity; title: string; desc: string; panel: Panel }[] = [{ icon: PackagePlus, title: 'Issue bundles', desc: 'Build and manage standard uniform sets', panel: 'bundles' },{ icon: Archive, title: 'Still needed', desc: 'Track incomplete cadet issues', panel: 'needed' },{ icon: Users, title: 'Roster administration', desc: 'Import, edit, and prepare annual rollover', panel: 'roster' },{ icon: ShieldCheck, title: 'Roles & access', desc: 'Manage authorized supply staff', panel: 'roles' },{ icon: FileUp, title: 'Import preview', desc: 'Validate a fictional roster before upload', panel: 'import' },{ icon: CalendarRange, title: 'Annual rollover', desc: 'Preview promotions and archived records', panel: 'rollover' }]
+  return <div className="content"><section className="page-intro"><div><p className="eyebrow">ADMINISTRATION</p><h2>Command center.</h2><p>Protected tools for keeping A.R.G.U.S. ready.</p></div></section><div className="command-grid">{options.map(({icon:Icon,title,desc,panel}) => <button key={title} onClick={() => onOpen(panel)}><span><Icon/></span><div><strong>{title}</strong><p>{desc}</p></div><ArrowRight/></button>)}</div></div>
 }
+
+function DemoPanel({ panel, count, official, onClose, onOpen }: { panel: Exclude<Panel, null>; count: number; official: number; onClose: () => void; onOpen: (panel: Panel) => void }) {
+  const difference = count - official
+  const screens = {
+    signin: { kicker: 'SECURE DEMONSTRATION', title: 'Welcome back', icon: KeyRound },
+    cadet: { kicker: 'PROPERTY RECORD · FICTIONAL', title: 'Alex Morgan', icon: UserRound },
+    issue: { kicker: 'ISSUE TRANSACTION', title: 'Issue selected items', icon: PackagePlus },
+    return: { kicker: 'RETURN TRANSACTION', title: 'Record a return', icon: RotateCcw },
+    review: { kicker: 'SESSION #024', title: 'Review physical count', icon: ClipboardCheck },
+    bundles: { kicker: 'STANDARD CONFIGURATIONS', title: 'Bundle selection', icon: Shirt },
+    needed: { kicker: 'OPEN REQUIREMENTS', title: 'Still Needed', icon: Archive },
+    roster: { kicker: 'ROSTER ADMINISTRATION', title: 'Cadet roster', icon: Users },
+    rollover: { kicker: '2026 → 2027', title: 'Annual rollover preview', icon: CalendarRange },
+    import: { kicker: 'VALIDATION PREVIEW', title: 'Import 24 cadets', icon: FileUp },
+    roles: { kicker: 'AUTHORIZED USERS', title: 'Roles & access', icon: ShieldCheck },
+  }[panel]
+  const Icon = screens.icon
+  return <div className="drawer-backdrop" role="presentation" onMouseDown={onClose}><aside className="demo-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" onMouseDown={event => event.stopPropagation()}>
+    <header><span className="drawer-icon"><Icon /></span><div><p className="eyebrow">{screens.kicker}</p><h2 id="drawer-title">{screens.title}</h2></div><button aria-label="Close panel" onClick={onClose}><X /></button></header>
+    {panel === 'signin' && <><div className="signin-crest"><Brand /><p>Use a fictional prototype identity to continue.</p></div><label className="field">Email<input defaultValue="riley.west@demo.invalid" /></label><label className="field">Password<input type="password" defaultValue="prototype" /></label><button className="primary-button">Sign in to A.R.G.U.S. <ArrowRight size={17}/></button><button className="quiet-action"><LogOut size={15}/> Sign out of preview</button></>}
+    {panel === 'cadet' && <><div className="record-hero"><span className="large-avatar">AM</span><div><strong>Alex Morgan</strong><p>NS1 · Alpha Company · Standard A</p></div><em className="attention">1 still needed</em></div><div className="record-stats"><Summary label="Issued" value="6" detail="Active property"/><Summary label="Due" value="1" detail="Missing size"/></div><PanelRows rows={['Navy PT Shirt · Medium|Issued Aug 18','Navy PT Shorts · Medium|Issued Aug 18','Black Oxford Shoes · 10 R|Still needed']} /><div className="split-actions"><button onClick={() => onOpen('return')}>Return item</button><button className="primary-button" onClick={() => onOpen('issue')}>Issue items</button></div></>}
+    {panel === 'issue' && <><Notice text="Issuing to Alex Morgan · NS1"/><PanelRows selectable rows={['Navy PT Shirt · Medium|24 available','Navy PT Shorts · Medium|8 available','Black Oxford Shoes · 10 R|6 available']} /><label className="field">Condition<select><option>Serviceable / new</option><option>Serviceable / used</option></select></label><button className="primary-button">Review issue · 2 items <ArrowRight size={17}/></button></>}
+    {panel === 'return' && <><Notice text="Returning from Alex Morgan · property record"/><PanelRows selectable rows={['Navy PT Shirt · Medium|Issued Aug 18','Navy PT Shorts · Medium|Issued Aug 18']} /><label className="field">Return condition<select><option>Serviceable</option><option>Laundry / inspection</option><option>Unserviceable</option></select></label><button className="primary-button">Record return <RotateCcw size={17}/></button></>}
+    {panel === 'review' && <><Notice text="Draft only · inventory remains unchanged until approval"/><div className="review-hero"><div><small>OFFICIAL</small><strong>{official}</strong></div><ArrowRight/><div><small>PHYSICAL</small><strong>{count}</strong></div></div><div className={difference === 0 ? 'difference match' : 'difference warning'}><Activity/><div><small>DISCREPANCY</small><strong>{difference > 0 ? '+' : ''}{difference} units</strong><p>{difference === 0 ? 'No adjustment required.' : 'Supply Officer approval required.'}</p></div></div><label className="field">Review note<textarea placeholder="Optional context for the audit record" /></label><button className="primary-button">Submit for approval <ShieldCheck size={17}/></button></>}
+    {panel === 'bundles' && <><Notice text="Select a standard configuration, then confirm sizes."/><PanelRows selectable rows={['Standard A · NS1|8 required pieces','PT Gear starter|3 required pieces','Drill team add-on|4 optional pieces']} /><button className="primary-button">Continue to sizes <ArrowRight size={17}/></button></>}
+    {panel === 'needed' && <PanelRows rows={['Alex Morgan · Black Oxford Shoes|Size 10 R · Open 23 days','Casey Rivers · Combination Cover|Size 7¼ · Open 8 days','Drew Parker · PT Shorts|Size Small · Awaiting stock']} />}
+    {panel === 'roster' && <><div className="drawer-toolbar"><button onClick={() => onOpen('import')}><FileUp/> Import roster</button><button onClick={() => onOpen('rollover')}><CalendarRange/> Preview rollover</button></div><PanelRows rows={['Alex Morgan|NS1 · Alpha','Jordan Carter|NS3 · Bravo','Taylor Sample|NS4 · Staff']} /></>}
+    {panel === 'rollover' && <><div className="review-hero"><div><small>PROMOTE</small><strong>18</strong></div><div><small>ARCHIVE</small><strong>4</strong></div><div><small>REVIEW</small><strong>2</strong></div></div><PanelRows rows={['Alex Morgan · NS1 → NS2|Ready','Jordan Carter · NS3 → NS4|Ready','Taylor Sample · NS4|Archive after returns']} /><button className="primary-button">Export preview</button></>}
+    {panel === 'import' && <><Notice text="cadet_roster_demo.csv · No data has been saved"/><div className="validation"><Check/><div><strong>22 rows ready</strong><p>2 rows need review before import</p></div></div><PanelRows rows={['Row 8 · Duplicate student ID|Needs review','Row 19 · Missing company|Needs review']} /><button className="primary-button">Import 22 valid records</button></>}
+    {panel === 'roles' && <><PanelRows rows={['Riley West|Supply Staff · Active','Kendall Moore|Supply Staff · Active','Avery Demo|Supply Officer · Active']} /><div className="role-key"><strong>Role permissions</strong><p><b>Supply Staff</b> can count, issue, and return. <b>Supply Officer</b> can approve adjustments and administer users.</p></div><button className="primary-button">Invite authorized user</button></>}
+  </aside></div>
+}
+
+function Notice({ text }: { text: string }) { return <div className="notice"><ShieldCheck size={17}/><span>{text}</span></div> }
+function PanelRows({ rows, selectable = false }: { rows: string[]; selectable?: boolean }) { return <div className="panel-rows">{rows.map((row, index) => { const [title, detail] = row.split('|'); return <label key={title}>{selectable && <input type="checkbox" defaultChecked={index < 2}/>}<span><strong>{title}</strong><small>{detail}</small></span>{!selectable && <ArrowRight size={16}/>}</label> })}</div> }
 
 function AddItemModal({ onClose, onSave }: { onClose: () => void; onSave: (item: Omit<InventoryItem, 'id' | 'issued' | 'status'>) => void }) {
   const [name, setName] = useState(''); const [category, setCategory] = useState(''); const [size, setSize] = useState(''); const [niin, setNiin] = useState(''); const [qty, setQty] = useState(0)
