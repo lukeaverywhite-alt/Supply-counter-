@@ -29,11 +29,13 @@ export type AuthorityRevocation = {
   signature: string
 }
 
-export type DistributedEventType = 'ITEM_ISSUED' | 'ITEM_RETURNED' | 'AUTHORITY_GRANTED' | 'AUTHORITY_REVOKED' | 'ROLE_CHANGED' | 'CONFLICT_DETECTED' | 'CONFLICT_RESOLVED' | 'RECORD_CORRECTED'
+export type DistributedEventType = 'ITEM_ISSUED' | 'ITEM_RETURNED' | 'INVENTORY_COUNT_SUBMITTED' | 'AUTHORITY_GRANTED' | 'AUTHORITY_REVOKED' | 'ROLE_CHANGED' | 'CONFLICT_DETECTED' | 'CONFLICT_RESOLVED' | 'RECORD_CORRECTED'
 export type LocalSyncStatus = 'LOCAL' | 'QUEUED' | 'SYNCING' | 'SYNCHRONIZED' | 'CONFLICT' | 'FAILED'
 
 export type UnsignedArgusEvent = {
   protocol: 'ARGUS'
+  protocolVersion: 1
+  organizationId: string
   eventVersion: 1
   eventId: string
   eventType: DistributedEventType
@@ -45,7 +47,8 @@ export type UnsignedArgusEvent = {
 }
 export type SignedArgusEvent = UnsignedArgusEvent & { signature: string }
 
-export type StoredEvent = { event: SignedArgusEvent; syncStatus: LocalSyncStatus; receivedAt: string }
+export type AuditDeliveryStatus = 'NOT_SUBMITTED' | 'PENDING' | 'BROADCAST' | 'CONFIRMED' | 'PROOF_VERIFIED' | 'FAILED'
+export type StoredEvent = { event: SignedArgusEvent; syncStatus: LocalSyncStatus; auditStatus: AuditDeliveryStatus; receivedAt: string }
 export type OutboxRecord = { eventId: string; attempts: number; status: 'QUEUED' | 'SYNCING' | 'FAILED'; lastError?: string }
-export type InventoryProjection = { entityId: string; name: string; onHand: number; version: number; appliedEventIds: string[] }
+export type InventoryProjection = { entityId: string; name: string; onHand: number; issued?: number; version: number; appliedEventIds: string[] }
 export type ConflictRecord = { id: string; entityId: string; eventIds: string[]; status: 'OPEN' | 'RESOLVED'; reason: string; resolutionEventId?: string }

@@ -27,3 +27,9 @@ flowchart TD
 ```
 
 The demonstrated mock engine supports offline queuing, retry with stable IDs, duplicates, reordering, provider failure, three independent replicas, and final-unit conflicts. It is not an always-online production service.
+
+## Stage 2.5 implementation
+
+Issue, return and physical count UI commands now enter the repository-backed replica through `DistributedAppController`. Repository schema version 2 and the legacy migration make the signed-event projection authoritative for those quantities. AES-GCM encrypted envelopes, epoch grants and redundant mock providers prove the private transport boundary. The transport proof is modular but is not yet wired to the browser replica's durable outbox; the current replica relay remains mock/plaintext, so no claim of a remote encrypted service is made.
+
+The proposed overlay topic label is `tm_argus_audit_v1` (an A.R.G.U.S. application convention, not a claimed standard). Admission would require TESTNET, the exact public commitment protocol/version, allow-listed fields, valid transaction format and organization namespace. Lookup keys are opaque organization ID plus event ID/hash. A Node topic manager/lookup service would live outside Vite. No overlay package was installed and no node operated in this stage.

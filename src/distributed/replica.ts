@@ -5,18 +5,18 @@ import type { ArgusPermission, ConflictRecord, InventoryProjection, SignedArgusE
 import type { ArgusRepository, RepositoryState } from '../storage/repository'
 import type { MockSyncProvider } from '../sync/mock'
 
-const permissionFor = (type: SignedArgusEvent['eventType']): ArgusPermission | undefined => ({ ITEM_ISSUED: 'inventory.issue', ITEM_RETURNED: 'inventory.return', CONFLICT_RESOLVED: 'conflicts.resolve' } as Partial<Record<SignedArgusEvent['eventType'], ArgusPermission>>)[type]
+const permissionFor = (type: SignedArgusEvent['eventType']): ArgusPermission | undefined => ({ ITEM_ISSUED: 'inventory.issue', ITEM_RETURNED: 'inventory.return', INVENTORY_COUNT_SUBMITTED: 'inventory.count', CONFLICT_RESOLVED: 'conflicts.resolve' } as Partial<Record<SignedArgusEvent['eventType'], ArgusPermission>>)[type]
 const unsigned = (event: SignedArgusEvent) => { const rest: Partial<SignedArgusEvent> = { ...event }; delete rest.signature; return canonicalize(rest) }
 
 export class ArgusReplica {
   online = true
-  constructor(readonly repository: ArgusRepository, private identity: ArgusIdentityProvider, private authorization: AuthorizationService, private provider: MockSyncProvider) {}
+  constructor(readonly repository: ArgusRepository, private identity: ArgusIdentityProvider, private authorization: AuthorizationService, private provider: MockSyncProvider, readonly organizationId = 'argus-demo-organization') {}
   async initialize(items: Array<Omit<InventoryProjection, 'appliedEventIds'>> = []) {
     await this.repository.initialize()
     await this.repository.transaction(s => { if (!s.inventory.length) s.inventory = items.map(item => ({ ...item, appliedEventIds: [] })) })
   }
-  private async signed(input: Omit<UnsignedArgusEvent, 'protocol' | 'eventVersion' | 'eventId' | 'actorPublicIdentity' | 'timestamp'> & { eventId?: string; timestamp?: string }) {
-    const event = { protocol: 'ARGUS' as const, eventVersion: 1 as const, eventId: input.eventId ?? crypto.randomUUID(), eventType: input.eventType, entityId: input.entityId, actorPublicIdentity: await this.identity.getPublicIdentity(), timestamp: input.timestamp ?? new Date().toISOString(), ...(input.baseVersion === undefined ? {} : { baseVersion: input.baseVersion }), payload: input.payload }
+  private async signed(input: Omit<UnsignedArgusEvent, 'protocol' | 'protocolVersion' | 'organizationId' | 'eventVersion' | 'eventId' | 'actorPublicIdentity' | 'timestamp'> & { eventId?: string; timestamp?: string }) {
+    const event = { protocol: 'ARGUS' as const, protocolVersion: 1 as const, organizationId: this.organizationId, eventVersion: 1 as const, eventId: input.eventId ?? crypto.randomUUID(), eventType: input.eventType, entityId: input.entityId, actorPublicIdentity: await this.identity.getPublicIdentity(), timestamp: input.timestamp ?? new Date().toISOString(), ...(input.baseVersion === undefined ? {} : { baseVersion: input.baseVersion }), payload: input.payload }
     return { ...event, signature: await this.identity.sign(canonicalize(event)) }
   }
   async issue(entityId: string, quantity: number, options: { eventId?: string; timestamp?: string } = {}) {
@@ -25,6 +25,18 @@ export class ArgusReplica {
     const actor = await this.identity.getPublicIdentity(); this.authorization.require(actor, 'inventory.issue', options.timestamp)
     const event = await this.signed({ eventType: 'ITEM_ISSUED', entityId, baseVersion: item.version, payload: { quantity }, ...options })
     await this.persistLocal(event); if (this.online) await this.sync(); return event
+  }
+  async returnItem(entityId: string, quantity: number, options: { eventId?: string; timestamp?: string } = {}) {
+    const state = await this.repository.snapshot(); const item = state.inventory.find(i => i.entityId === entityId)
+    if (!item) throw new Error('Inventory item was not found.'); if (!Number.isInteger(quantity) || quantity <= 0 || (item.issued ?? 0) < quantity) throw new Error('Invalid return quantity.')
+    const actor = await this.identity.getPublicIdentity(); this.authorization.require(actor, 'inventory.return', options.timestamp)
+    const event = await this.signed({ eventType: 'ITEM_RETURNED', entityId, baseVersion: item.version, payload: { quantity }, ...options }); await this.persistLocal(event); if (this.online) await this.sync(); return event
+  }
+  async submitCount(entityId: string, countedQuantity: number, sessionId: string, options: { eventId?: string; timestamp?: string } = {}) {
+    const state = await this.repository.snapshot(); const item = state.inventory.find(i => i.entityId === entityId)
+    if (!item || !Number.isInteger(countedQuantity) || countedQuantity < 0) throw new Error('Invalid physical count.')
+    const actor = await this.identity.getPublicIdentity(); this.authorization.require(actor, 'inventory.count', options.timestamp)
+    const event = await this.signed({ eventType: 'INVENTORY_COUNT_SUBMITTED', entityId, baseVersion: item.version, payload: { sessionId, expectedQuantity: item.onHand, countedQuantity, discrepancy: countedQuantity - item.onHand }, ...options }); await this.persistLocal(event); if (this.online) await this.sync(); return event
   }
   async correct(originalEventId: string, entityId: string, field: string, value: unknown, reason: string) {
     const event = await this.signed({ eventType: 'RECORD_CORRECTED', entityId, payload: { originalEventId, field, value, reason } }); await this.persistLocal(event); return event
@@ -46,13 +58,15 @@ export class ArgusReplica {
         const related = state.events.filter(e => e.event.entityId === event.entityId && e.event.baseVersion === event.baseVersion && e.event.eventType === 'ITEM_ISSUED').map(e => e.event.eventId)
         const conflict: ConflictRecord = { id: `conflict:${[...related, event.eventId].sort().join(':')}`, entityId: event.entityId, eventIds: [...related, event.eventId], status: 'OPEN', reason: `Concurrent events attempted to consume unavailable ${item.name}.` }
         if (!state.conflicts.some(c => c.id === conflict.id)) state.conflicts.push(conflict)
-      } else { item.onHand += delta; item.version += 1; item.appliedEventIds.push(event.eventId) }
+      } else { item.onHand += delta; item.issued = Math.max(0, (item.issued ?? 0) - delta); item.version += 1; item.appliedEventIds.push(event.eventId) }
     }
+    if (event.eventType === 'INVENTORY_COUNT_SUBMITTED') { const item = state.inventory.find(i => i.entityId === event.entityId); const counted = event.payload.countedQuantity; if (!item || !Number.isInteger(counted) || Number(counted) < 0) throw new Error('Corrupted count event.'); if (event.baseVersion !== item.version) throw new Error('Count base version conflict.'); item.onHand = Number(counted); item.version++; item.appliedEventIds.push(event.eventId) }
     if (event.eventType === 'CONFLICT_RESOLVED') { const conflict = state.conflicts.find(c => c.id === event.payload.conflictId); if (conflict) { conflict.status = 'RESOLVED'; conflict.resolutionEventId = event.eventId } }
-    state.events.push({ event, syncStatus: 'SYNCHRONIZED', receivedAt: new Date().toISOString() })
+    state.events.push({ event, syncStatus: 'SYNCHRONIZED', auditStatus: 'PENDING', receivedAt: new Date().toISOString() })
   }
   private async persistLocal(event: SignedArgusEvent) { await this.repository.transaction(state => { this.apply(state, event); const stored = state.events.find(e => e.event.eventId === event.eventId)!; stored.syncStatus = 'QUEUED'; state.outbox.push({ eventId: event.eventId, attempts: 0, status: 'QUEUED' }) }) }
   async receive(event: SignedArgusEvent) {
+    if (event.protocol !== 'ARGUS' || event.protocolVersion !== 1 || event.eventVersion !== 1 || event.organizationId !== this.organizationId || !event.eventId || !event.actorPublicIdentity || !event.signature || !event.payload || typeof event.payload !== 'object') throw new Error('Malformed or unsupported distributed event.')
     if (!(await this.identity.verify(unsigned(event), event.signature, event.actorPublicIdentity))) throw new Error('Invalid event signature.')
     await this.repository.transaction(state => this.apply(state, event))
   }

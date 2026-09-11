@@ -70,3 +70,9 @@ See [the BSV architecture](docs/BSV_ARCHITECTURE.md) and [security model](docs/S
 ## Stage 2 distributed proof
 
 Stage 2 adds permission-enforced mock identities and signed authority chains, append-only replica/event/outbox abstractions, IndexedDB and memory repositories, idempotent mock multi-client synchronization, explicit inventory conflicts, and correction events. It does **not** claim production key custody, encrypted private-history replication, an operational overlay, or a completed testnet transaction. See [the distributed architecture](docs/DISTRIBUTED_ARCHITECTURE.md), [offline sync](docs/OFFLINE_SYNC.md), [identity model](docs/IDENTITY_MODEL.md), and [testnet result](docs/BSV_TESTNET.md).
+
+## Stage 2.5 distributed integration
+
+The normal issue, return, and count-submit controls now use permission-checked signed events and a schema-versioned IndexedDB projection. A non-destructive, idempotent migration copies legacy inventory as genesis state. The Activity view separates local/private-sync and BSV-audit status.
+
+Stage 2.5 also provides an AES-256-GCM private-envelope protocol, mock epoch rotation/key grants, untrusted private-history provider interfaces, redundant-provider recovery tests, and a fail-closed external testnet-wallet boundary. No real BSV transaction or overlay was run, no TXID exists, and mainnet remains impossible. See [Stage 2.5 architecture](docs/STAGE_2_5_ARCHITECTURE.md), [private encryption](docs/PRIVATE_EVENT_ENCRYPTION.md), [private sync](docs/PRIVATE_HISTORY_SYNC.md), [device recovery](docs/DEVICE_RECOVERY.md), [storage migration](docs/STORAGE_MIGRATION.md), and [dependency review](docs/BSV_DEPENDENCY_REVIEW.md).
