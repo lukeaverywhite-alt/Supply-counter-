@@ -33,6 +33,7 @@
     "eslint": "^10.10.0",
     "eslint-plugin-react-hooks": "latest",
     "eslint-plugin-react-refresh": "latest",
+    "fake-indexeddb": "^6.2.5",
     "globals": "latest",
     "jsdom": "^30.0.1",
     "typescript-eslint": "latest",
