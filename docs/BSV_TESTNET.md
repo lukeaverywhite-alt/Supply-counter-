@@ -1,13 +1,17 @@
-# BSV testnet research and Stage 2 result
+# BSV testnet research and Stage 2.5 result
 
 ## Result: NOT COMPLETED
 
-No transaction was broadcast and no TXID was generated. The documentation browser was unavailable (HTTP 401) and direct access to official documentation was blocked by the environment proxy (HTTP 403). Package registry metadata was reachable on 2026-09-11 and identified the official `bsv-blockchain/ts-stack` repository, `@bsv/sdk` 2.6.0, `@bsv/wallet-toolbox` 2.13.0, and `@bsv/overlay` 2.3.1. Registry metadata alone is not enough to verify wallet funding, ARC endpoint configuration, testnet broadcaster behavior, or Merkle proof APIs safely, so no dependency or guessed adapter was added.
+No transaction was broadcast and no TXID was generated. On 2026-09-11 the web documentation tool returned HTTP 401. Live npm registry metadata verified that the official maintained source is `bsv-blockchain/ts-stack` and the versions recorded in `BSV_DEPENDENCY_REVIEW.md`; it did not provide a funded external BRC-100 wallet, verified TESTNET ARC configuration, or independent header/proof source. Guessing or embedding a wallet secret would violate the security boundary.
 
-## Intended adapter boundary
+Stage 2.5 adds `ArgusWalletAdapter`, an explicitly non-operational testnet adapter, public commitment shape, verification levels, and a testnet-only assertion. Mainnet has no adapter and fails closed. Exact manual completion path:
 
-A future `BsvTestnetProvider` should accept only a privacy-safe commitment containing protocol/version, event ID/type, opaque entity reference, SHA-256 event hash, timestamp, and public signer reference. It must use an externally controlled development wallet, an explicitly configured verified testnet ARC broadcaster, persist the returned real TXID, request/validate confirmation proof, and fail closed on network mismatch. It must never fall back to another endpoint or mainnet.
+1. provision a separately controlled, test-only BRC-100 wallet outside the Vite process and fund it with TESTNET coins;
+2. implement/review the adapter against the exact installed `@bsv/sdk`/wallet client API and an explicitly verified TESTNET ARC endpoint;
+3. use fictional `argus-test-*` and `item-test-001` references and the allow-listed commitment only;
+4. create and broadcast exactly one transaction, persist its returned TXID and BEEF separately from private history;
+5. label it `TX_BROADCAST`, not confirmed;
+6. obtain a Merkle path, validate it locally against the transaction, and validate the containing header against an independently governed header chain before advancing to `MERKLE_PROOF_VERIFIED`;
+7. record which broadcaster, proof source and header source remain remotely trusted.
 
-“Verified” must distinguish: signature/hash validation performed locally; transaction inclusion established from a Merkle path and header chain; and facts still trusted from ARC, wallet, overlay lookup, or header source. Merely receiving a TXID is not SPV verification.
-
-CI remains MOCK-only. Testnet work requires a separately reviewed, manually invoked workflow and secure non-`VITE_` configuration. Mainnet configuration continues to throw before provider construction.
+BRC-62 BEEF can package transaction ancestry and BRC-74 MerklePath/BUMP represents inclusion paths. Local path calculation is not full SPV without a trusted/validated header chain. No manually invoked spending workflow was added because there are no secrets or wallet endpoint to supply it safely.

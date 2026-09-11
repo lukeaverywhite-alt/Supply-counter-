@@ -4,12 +4,13 @@ import {
   LayoutGrid, Minus, PackagePlus, Plus, RotateCcw, Search, Settings, ShieldCheck,
   UserRound, Users, Wifi, LogOut, FileUp, CalendarRange, KeyRound, X, Check, Shirt,
 } from 'lucide-react'
-import { loadData, matchesSearch, rollover, saveData, statusFor, submitCount, transact, withAudit } from './domain'
+import { loadData, matchesSearch, rollover, statusFor, withAudit } from './domain'
 import { submitEventForAudit } from './audit/service'
 import { MockBlockchainProvider } from './blockchain/MockBlockchainProvider'
 import { MockSigner } from './blockchain/MockSigner'
 import { resolveBlockchainMode } from './blockchain/config'
 import type { AppData, InventoryItem } from './types'
+import { DistributedAppController } from './distributed/appIntegration'
 
 type Tab = 'count' | 'inventory' | 'cadets' | 'activity' | 'more'
 type Panel = 'signin' | 'cadet' | 'issue' | 'return' | 'review' | 'bundles' | 'needed' | 'roster' | 'rollover' | 'import' | 'roles' | null
@@ -31,6 +32,8 @@ function App() {
   })
   const [tab, setTab] = useState<Tab>('count')
   const [data, setData] = useState<AppData>(() => loadData())
+  const [distributed] = useState(() => new DistributedAppController())
+  const [storeStatus, setStoreStatus] = useState({ ready: false, outbox: 0, conflicts: 0, events: 0 })
   const items = data.inventory
   const [selectedId, setSelectedId] = useState(items[0].id)
   const [count, setCount] = useState(data.session.counts[items[0].id] ?? items[0].onHand)
@@ -46,7 +49,7 @@ function App() {
     return items.filter((item) => matchesSearch(query, item.name, item.category, item.size, item.niin))
   }, [items, query])
 
-  useEffect(() => saveData(data), [data])
+  useEffect(() => { let active = true; void distributed.initialize().then(async projected => { if (!active) return; setData(projected); const state = await distributed.technicalState(); setStoreStatus({ ready: true, outbox: state.outbox.length, conflicts: state.conflicts.filter(c => c.status === 'OPEN').length, events: state.events.length }) }).catch(error => { if (active) setNotice(error instanceof Error ? error.message : 'Local repository initialization failed.') }); return () => { active = false } }, [distributed])
   useEffect(() => {
     if (!auditRuntime) return
     const queued = data.audit.find(event => event.audit.status === 'QUEUED_FOR_AUDIT')
@@ -99,6 +102,7 @@ function App() {
       setNotice(error instanceof Error ? error.message : 'The action could not be completed.')
     }
   }
+  const runDistributed = async (action: () => Promise<AppData>, success: string) => { setNotice(success); try { const projected = await action(); setData(current => ({ ...current, inventory: projected.inventory, audit: projected.audit })); const state = await distributed.technicalState(); setStoreStatus({ ready: true, outbox: state.outbox.length, conflicts: state.conflicts.filter(c => c.status === 'OPEN').length, events: state.events.length }) } catch (error) { setNotice(error instanceof Error ? error.message : 'The signed operation could not be completed.') } }
 
   return (
     <div className="app-shell">
@@ -128,14 +132,14 @@ function App() {
         </div>
         <header className="topbar">
           <div><p className="eyebrow">BETHEL NJROTC SUPPLY</p><h1>{pageTitle(tab)}</h1></div>
-          <div className="top-actions"><span className="sync"><Wifi size={15} /> Local draft</span><button className="icon-button" aria-label="Settings"><Settings size={20} /></button><span className="top-avatar">RW</span></div>
+          <div className="top-actions"><span className="sync"><Wifi size={15} /> {storeStatus.conflicts ? 'CONFLICT · ACTION REQUIRED' : storeStatus.outbox ? `OFFLINE · ${storeStatus.outbox} CHANGES QUEUED` : storeStatus.ready ? 'ONLINE · SYNCHRONIZED' : 'LOCAL STORE · STARTING'}</span><button className="icon-button" aria-label="Settings"><Settings size={20} /></button><span className="top-avatar">RW</span></div>
         </header>
 
         {notice && <div className="app-notice" role="status">{notice}</div>}
         {tab === 'count' && <CountView session={data.session} selected={selected} count={count} setCount={updateCount} step={step} setStep={setStep} query={query} setQuery={setQuery} filtered={filtered} selectItem={selectItem} onReview={() => setPanel('review')} lastAction={countHistory.at(-1)} onUndo={undoCount} />}
         {tab === 'inventory' && <InventoryView items={filtered} query={query} setQuery={setQuery} onAdd={() => setShowAdd(true)} selectItem={(item) => { selectItem(item); setTab('count') }} />}
         {tab === 'cadets' && <CadetsView cadets={data.cadets} query={cadetQuery} setQuery={setCadetQuery} onOpen={() => setPanel('cadet')} />}
-        {tab === 'activity' && <ActivityView data={data} />}
+        {tab === 'activity' && <ActivityView data={data} distributed={storeStatus} />}
         {tab === 'more' && <MoreView onOpen={setPanel} />}
       </main>
 
@@ -144,7 +148,7 @@ function App() {
       </nav>
 
       {showAdd && <AddItemModal inventory={items} onClose={() => setShowAdd(false)} onSave={(item) => { const created = { ...item, id: crypto.randomUUID(), issued: 0, status: statusFor(item) }; setData(current => withAudit({ ...current, inventory: [...current.inventory, created] }, 'INVENTORY_ITEM_CREATED', `Created ${created.name}`, created.id, { itemId: created.id })); setShowAdd(false); setNotice(`${created.name} was added.`) }} />}
-      {panel && <DemoPanel data={data} panel={panel} count={count} official={selected.onHand} onClose={() => setPanel(null)} onOpen={setPanel} onSubmitCount={() => { runAction(current => submitCount(current), 'Physical count submitted.'); setPanel(null) }} onIssue={() => { runAction(current => transact(current, selected.id, 1, 'issue', 'cadet-am'), `Issued 1 ${selected.name}.`); setPanel(null) }} onReturn={() => { runAction(current => transact(current, selected.id, 1, 'return', 'cadet-am'), `Returned 1 ${selected.name}.`); setPanel(null) }} onRollover={() => { runAction(current => rollover(current, true), 'Annual rollover completed.'); setPanel(null) }} />}
+      {panel && <DemoPanel data={data} panel={panel} count={count} official={selected.onHand} onClose={() => setPanel(null)} onOpen={setPanel} onSubmitCount={() => { setData(current => withAudit(current, 'INVENTORY_COUNT_SUBMITTED', `Submitted ${data.session.name} as a signed count event`, data.session.id)); void runDistributed(() => distributed.submitCount(selected.id, count, data.session.id), 'Physical count submitted.'); setPanel(null) }} onIssue={() => { setData(current => withAudit({ ...current, cadets: current.cadets.map(cadet => cadet.id === 'cadet-am' ? { ...cadet, items: cadet.items + 1 } : cadet) }, 'ITEM_ISSUED', `Issued 1 × ${selected.name}`, selected.id)); void runDistributed(() => distributed.issue(selected.id, 1), `Issued 1 ${selected.name}.`); setPanel(null) }} onReturn={() => { setData(current => withAudit({ ...current, cadets: current.cadets.map(cadet => cadet.id === 'cadet-am' ? { ...cadet, items: Math.max(0, cadet.items - 1) } : cadet) }, 'ITEM_RETURNED', `Returned 1 × ${selected.name}`, selected.id)); void runDistributed(() => distributed.returnItem(selected.id, 1), `Returned 1 ${selected.name}.`); setPanel(null) }} onRollover={() => { runAction(current => rollover(current, true), 'Annual rollover completed.'); setPanel(null) }} />}
     </div>
   )
 }
@@ -234,8 +238,8 @@ function CadetsView({ cadets, query, setQuery, onOpen }: { cadets: AppData['cade
   return <div className="content"><section className="page-intro"><div><p className="eyebrow">PERSONNEL ACCOUNTABILITY</p><h2>Cadet property records.</h2><p>Fictional records are shown in this front-end preview.</p></div><button className="gold-button"><UserRound size={18}/> Add cadet</button></section><div className="table-card"><div className="table-tools"><div className="inline-search"><Search size={18}/><input aria-label="Search cadets" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search cadet name…" /></div></div><div className="cadet-grid">{visible.map(cadet => <button className="cadet-card" key={cadet.id} onClick={onOpen}><span className="large-avatar">{cadet.initials}</span><span><strong>{cadet.name}</strong><small>{cadet.level} · {cadet.configuration}</small></span><div><b>{cadet.items}</b><small>Issued items</small></div><em className={cadet.status === 'Clear' ? 'ready' : 'attention'}>{cadet.status}</em><ArrowRight size={18}/></button>)}</div></div></div>
 }
 
-function ActivityView({ data }: { data: AppData }) {
-  return <div className="content"><section className="page-intro"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Nothing changes silently.</h2><p>Private operational details stay local; privacy-safe commitments receive verifiable audit metadata.</p></div></section><section className="distributed-panel" aria-label="A.R.G.U.S. distributed system"><p className="eyebrow">A.R.G.U.S. DISTRIBUTED SYSTEM · DEVELOPMENT</p><div><span><b>MODE</b> MOCK</span><span><b>IDENTITY</b> Test Supply Officer</span><span><b>AUTHORIZATION</b> VERIFIED</span><span><b>LOCAL EVENTS</b> {data.audit.length}</span><span><b>QUEUED</b> {data.audit.filter(event => event.audit.status === 'QUEUED_FOR_AUDIT').length}</span><span><b>CONFLICTS</b> 0</span></div><strong>{data.audit.some(event => event.audit.status === 'QUEUED_FOR_AUDIT') ? `OFFLINE · ${data.audit.filter(event => event.audit.status === 'QUEUED_FOR_AUDIT').length} CHANGES QUEUED` : 'LOCAL ONLY · NO SYNC PROVIDER CONNECTED'}</strong></section><div className="timeline">{data.audit.length ? data.audit.map(event => <div className="event" key={event.eventId}><span className="event-icon"><History/></span><div className="event-details"><strong>{event.summary}</strong><p>{event.type}</p><div className="audit-metadata"><span><b>Audit</b> {event.audit.status}</span><span><b>Target</b> {event.audit.targetNetwork}</span><span><b>Submitted</b> {event.audit.submittedNetwork ?? 'NOT SUBMITTED'}</span>{event.audit.eventHash && <span title={event.audit.eventHash}><b>Hash</b> {event.audit.eventHash.slice(0, 16)}…</span>}{event.audit.transactionId && <span title={event.audit.transactionId}><b>Transaction</b> {event.audit.transactionId.slice(0, 24)}…</span>}</div></div><span className="event-user" title={event.actorId}>SS</span><time>{new Date(event.timestamp).toLocaleString()}</time></div>) : <div className="empty-state">No activity yet. Completed actions will appear here.</div>}</div></div>
+function ActivityView({ data, distributed }: { data: AppData; distributed: { ready: boolean; outbox: number; conflicts: number; events: number } }) {
+  return <div className="content"><section className="page-intro"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Nothing changes silently.</h2><p>Private operational details stay local; privacy-safe commitments receive verifiable audit metadata.</p></div></section><section className="distributed-panel" aria-label="A.R.G.U.S. distributed system"><p className="eyebrow">A.R.G.U.S. DISTRIBUTED SYSTEM · DEVELOPMENT</p><div><span><b>IDENTITY</b> Supply Officer — Test Identity</span><span><b>AUTHORITY</b> VERIFIED</span><span><b>LOCAL STORE</b> IndexedDB</span><span><b>PRIVATE SYNC</b> Mock provider</span><span><b>LOCAL EVENTS</b> {distributed.events}</span><span><b>OUTBOX</b> {distributed.outbox}</span><span><b>CONFLICTS</b> {distributed.conflicts}</span><span><b>ENCRYPTION EPOCH</b> Development</span><span><b>BSV NETWORK</b> TESTNET (locked adapter)</span></div><strong>{distributed.conflicts ? 'SYNC CONFLICT · ACTION REQUIRED' : distributed.outbox ? `OFFLINE · ${distributed.outbox} CHANGES QUEUED · BSV AUDIT PENDING` : distributed.ready ? 'ONLINE · SYNCHRONIZED · BSV AUDIT PENDING' : 'LOCAL ONLY · NO SYNC PROVIDER CONNECTED · LOCAL STORE INITIALIZING'}</strong></section><div className="timeline">{data.audit.length ? data.audit.map(event => <div className="event" key={event.eventId}><span className="event-icon"><History/></span><div className="event-details"><strong>{event.summary}</strong><p>{event.type}</p><div className="audit-metadata"><span><b>Local</b> Saved</span><span><b>Private sync</b> {distributed.outbox ? 'Queued' : 'Synchronized'}</span><span><b>BSV audit</b> {event.audit.status}</span><span><b>Target</b> {event.audit.targetNetwork}</span></div></div><span className="event-user" title={event.actorId}>SS</span><time>{new Date(event.timestamp).toLocaleString()}</time></div>) : <div className="empty-state">No activity yet. Completed actions will appear here.</div>}</div></div>
 }
 
 function MoreView({ onOpen }: { onOpen: (panel: Panel) => void }) {
