@@ -75,4 +75,8 @@ Stage 2 adds permission-enforced mock identities and signed authority chains, ap
 
 The normal issue, return, and count-submit controls now use permission-checked signed events and a schema-versioned IndexedDB projection. A non-destructive, idempotent migration copies legacy inventory as genesis state. The Activity view separates local/private-sync and BSV-audit status.
 
+## Stage 3A cadets, bundles, and readiness
+
+Stage 3A adds signed, permission-checked cadet records, immutable editable bundle versions, exact idempotent factory presets, and lifecycle-preserving Still Needed requirements to the existing IndexedDB replica. Availability and readiness are derived from live projections; concurrent cadet or bundle edits become explicit reconciliation conflicts. See [the Stage 3A architecture](docs/STAGE_3A_CADETS_AND_BUNDLES.md) and [ADR 004](docs/adr/004-stage-3a-cadets-bundles.md).
+
 Stage 2.5 also provides an AES-256-GCM private-envelope protocol, mock epoch rotation/key grants, untrusted private-history provider interfaces, redundant-provider recovery tests, and a fail-closed external testnet-wallet boundary. No real BSV transaction or overlay was run, no TXID exists, and mainnet remains impossible. See [Stage 2.5 architecture](docs/STAGE_2_5_ARCHITECTURE.md), [private encryption](docs/PRIVATE_EVENT_ENCRYPTION.md), [private sync](docs/PRIVATE_HISTORY_SYNC.md), [device recovery](docs/DEVICE_RECOVERY.md), [storage migration](docs/STORAGE_MIGRATION.md), and [dependency review](docs/BSV_DEPENDENCY_REVIEW.md).
