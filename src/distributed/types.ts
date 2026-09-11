@@ -29,7 +29,7 @@ export type AuthorityRevocation = {
   signature: string
 }
 
-export type DistributedEventType = 'ITEM_ISSUED' | 'ITEM_RETURNED' | 'INVENTORY_COUNT_SUBMITTED' | 'AUTHORITY_GRANTED' | 'AUTHORITY_REVOKED' | 'ROLE_CHANGED' | 'CONFLICT_DETECTED' | 'CONFLICT_RESOLVED' | 'RECORD_CORRECTED'
+export type DistributedEventType = 'ITEM_ISSUED' | 'ITEM_RETURNED' | 'INVENTORY_COUNT_SUBMITTED' | 'AUTHORITY_GRANTED' | 'AUTHORITY_REVOKED' | 'ROLE_CHANGED' | 'CONFLICT_DETECTED' | 'CONFLICT_RESOLVED' | 'RECORD_CORRECTED' | 'CADET_CREATED' | 'CADET_UPDATED' | 'BUNDLE_CREATED' | 'BUNDLE_UPDATED' | 'BUNDLE_DEACTIVATED' | 'STILL_NEEDED_ADDED' | 'STILL_NEEDED_UPDATED' | 'STILL_NEEDED_CANCELLED' | 'STILL_NEEDED_FULFILLED'
 export type LocalSyncStatus = 'LOCAL' | 'QUEUED' | 'SYNCING' | 'SYNCHRONIZED' | 'CONFLICT' | 'FAILED'
 
 export type UnsignedArgusEvent = {
@@ -52,3 +52,11 @@ export type StoredEvent = { event: SignedArgusEvent; syncStatus: LocalSyncStatus
 export type OutboxRecord = { eventId: string; attempts: number; status: 'QUEUED' | 'SYNCING' | 'FAILED'; lastError?: string }
 export type InventoryProjection = { entityId: string; name: string; onHand: number; issued?: number; version: number; appliedEventIds: string[] }
 export type ConflictRecord = { id: string; entityId: string; eventIds: string[]; status: 'OPEN' | 'RESOLVED'; reason: string; resolutionEventId?: string }
+
+export type NsLevel = 'NS1' | 'NS2' | 'NS3' | 'NS4'
+export type CadetGender = 'Male' | 'Female'
+export type CadetProjection = { cadetId: string; fullName: string; gender: CadetGender; nsLevel: NsLevel; status: 'ACTIVE' | 'INACTIVE'; sizes: Record<string, string>; currentProperty: Array<{ itemId: string; label: string; size?: string; quantity: number; issuedAt: string }>; createdAt: string; updatedAt: string; version: number; appliedEventIds: string[] }
+export type BundleLineProjection = { lineId: string; itemId?: string; displayLabel: string; required: boolean; supportsSizing: boolean; defaultQuantity: number; order: number }
+export type BundleVersionProjection = { bundleId: string; displayName: string; genderApplicability: CadetGender | 'Any'; purpose: string; lines: BundleLineProjection[]; active: boolean; version: number; createdAt: string; actorPublicIdentity: string; priorVersion?: number; eventId: string }
+export type BundleProjection = { bundleId: string; currentVersion: number; versions: BundleVersionProjection[]; appliedEventIds: string[] }
+export type StillNeededProjection = { requirementId: string; cadetId: string; itemId?: string; displayLabel: string; size?: string; quantityNeeded: number; quantityFulfilled: number; status: 'OPEN' | 'PARTIALLY_FULFILLED' | 'FULFILLED' | 'CANCELLED'; firstNeededAt: string; updatedAt: string; source: 'MANUAL' | 'INCOMPLETE_ISSUE' | 'CORRECTION'; relatedBundleId?: string; version: number; appliedEventIds: string[] }

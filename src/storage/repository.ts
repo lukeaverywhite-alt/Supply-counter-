@@ -1,20 +1,20 @@
-import type { ConflictRecord, InventoryProjection, OutboxRecord, StoredEvent } from '../distributed/types'
+import type { BundleProjection, CadetProjection, ConflictRecord, InventoryProjection, OutboxRecord, StillNeededProjection, StoredEvent } from '../distributed/types'
 
-export const REPOSITORY_SCHEMA_VERSION = 2
-export type RepositoryState = { schemaVersion: number; events: StoredEvent[]; outbox: OutboxRecord[]; inventory: InventoryProjection[]; conflicts: ConflictRecord[] }
+export const REPOSITORY_SCHEMA_VERSION = 3
+export type RepositoryState = { schemaVersion: number; events: StoredEvent[]; outbox: OutboxRecord[]; inventory: InventoryProjection[]; cadets: CadetProjection[]; bundles: BundleProjection[]; stillNeeded: StillNeededProjection[]; conflicts: ConflictRecord[] }
 export interface ArgusRepository {
   initialize(): Promise<void>
   snapshot(): Promise<RepositoryState>
   transaction(change: (draft: RepositoryState) => void): Promise<void>
 }
 
-const empty = (): RepositoryState => ({ schemaVersion: REPOSITORY_SCHEMA_VERSION, events: [], outbox: [], inventory: [], conflicts: [] })
+const empty = (): RepositoryState => ({ schemaVersion: REPOSITORY_SCHEMA_VERSION, events: [], outbox: [], inventory: [], cadets: [], bundles: [], stillNeeded: [], conflicts: [] })
 export function migrateRepositoryState(value: unknown): RepositoryState {
   if (!value || typeof value !== 'object') throw new Error('Unreadable A.R.G.U.S. repository; source was preserved.')
   const source = value as Partial<RepositoryState>
   if (source.schemaVersion !== undefined && source.schemaVersion > REPOSITORY_SCHEMA_VERSION) throw new Error('Unsupported future repository schema; source was preserved.')
   if (!Array.isArray(source.events) || !Array.isArray(source.outbox) || !Array.isArray(source.inventory) || !Array.isArray(source.conflicts)) throw new Error('Malformed A.R.G.U.S. repository; source was preserved.')
-  return { schemaVersion: REPOSITORY_SCHEMA_VERSION, events: source.events.map(record => ({ ...record, auditStatus: record.auditStatus ?? 'PENDING' })), outbox: source.outbox, inventory: source.inventory, conflicts: source.conflicts }
+  return { schemaVersion: REPOSITORY_SCHEMA_VERSION, events: source.events.map(record => ({ ...record, auditStatus: record.auditStatus ?? 'PENDING' })), outbox: source.outbox, inventory: source.inventory, cadets: source.cadets ?? [], bundles: source.bundles ?? [], stillNeeded: source.stillNeeded ?? [], conflicts: source.conflicts }
 }
 export class MemoryRepository implements ArgusRepository {
   private state = empty()
@@ -30,7 +30,7 @@ export class IndexedDbRepository implements ArgusRepository {
   async initialize() {
     if (!globalThis.indexedDB) throw new Error('IndexedDB is unavailable; existing localStorage data was not deleted.')
     this.db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.name, 2)
+      const request = indexedDB.open(this.name, 3)
       request.onupgradeneeded = () => request.result.createObjectStore('replica')
       request.onerror = () => reject(request.error)
       request.onsuccess = () => resolve(request.result)

@@ -6,6 +6,7 @@ export default defineConfig({
     setupFiles: './src/test/setup.ts',
     coverage: {
       provider: 'v8',
+      reportsDirectory: 'coverage-stage3a',
       include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/main.tsx', 'src/test/**', 'src/**/*.test.tsx', 'src/types.ts'],
       thresholds: {
