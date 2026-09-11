@@ -8,7 +8,7 @@ export function loadData(storage: Pick<Storage, 'getItem'> = localStorage): AppD
     const value = storage.getItem(STORAGE_KEY)
     if (!value) return structuredClone(seedData)
     const parsed = JSON.parse(value) as AppData
-    return parsed.version === 2 ? parsed : structuredClone(seedData)
+    return parsed.version === 2 ? { ...parsed, stillNeeded: parsed.stillNeeded ?? [] } : structuredClone(seedData)
   } catch {
     return structuredClone(seedData)
   }
@@ -19,7 +19,25 @@ export function saveData(data: AppData, storage: Pick<Storage, 'setItem'> = loca
 }
 
 export function statusFor(item: Pick<InventoryItem, 'onHand' | 'reorderAt'>): InventoryItem['status'] {
-  return item.onHand <= item.reorderAt ? 'Low stock' : 'Ready'
+  if (item.onHand === 0) return 'Out of stock'
+  return item.reorderAt !== undefined && item.onHand <= item.reorderAt ? 'Low' : 'Healthy'
+}
+
+export function normalizeSearch(value: string) {
+  const abbreviations: Record<string, string> = { pt: 'physical training', nsu: 'navy service uniform', oxford: 'shoe' }
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean).map(token => abbreviations[token] ?? token).join(' ')
+}
+
+export function matchesSearch(query: string, ...fields: string[]) {
+  const needle = normalizeSearch(query)
+  if (!needle) return true
+  const compactNeedle = needle.replaceAll(' ', '')
+  const words = needle.split(' ')
+  return fields.some(field => {
+    const normalized = normalizeSearch(field)
+    const haystack = normalized.replaceAll(' ', '')
+    return haystack.includes(compactNeedle) || words.every(word => normalized.includes(word))
+  })
 }
 
 export function transact(data: AppData, itemId: string, quantity: number, kind: 'issue' | 'return', cadetId?: string): AppData {

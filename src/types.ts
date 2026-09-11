@@ -1,4 +1,4 @@
-export type InventoryStatus = 'Ready' | 'Low stock' | 'Count due'
+export type InventoryStatus = 'Healthy' | 'Low' | 'Out of stock' | 'Count due'
 
 export type InventoryItem = {
   id: string
@@ -9,7 +9,7 @@ export type InventoryItem = {
   niin: string
   onHand: number
   issued: number
-  reorderAt: number
+  reorderAt?: number
   countBy: number
   status: InventoryStatus
 }
@@ -32,10 +32,19 @@ export type Bundle = { id: string; name: string; lines: BundleLine[] }
 export type CountSession = {
   id: string
   name: string
-  status: 'draft' | 'submitted'
+  status: 'draft' | 'active' | 'submitted' | 'needs-approval' | 'reconciled' | 'cancelled'
   counts: Record<string, number>
   startedAt: string
   submittedAt?: string
+}
+
+export type StillNeeded = {
+  id: string
+  cadetId: string
+  itemId: string
+  requiredSize: string
+  quantity: number
+  firstNeededAt: string
 }
 
 export type AuditEvent = {
@@ -54,6 +63,7 @@ export type AppData = {
   inventory: InventoryItem[]
   cadets: Cadet[]
   bundles: Bundle[]
+  stillNeeded: StillNeeded[]
   session: CountSession
   audit: AuditEvent[]
 }

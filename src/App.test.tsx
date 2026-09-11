@@ -3,13 +3,14 @@ import { describe, expect, it, vi } from 'vitest'
 import App from './App'
 
 describe('A.R.G.U.S. count workflow', () => {
-  it('increments and resets the draft physical count', () => {
+  it('increments and clearly undoes the most recent counting action', () => {
     render(<App />)
     expect(document.querySelector('.count-display strong')).toHaveTextContent('18')
     fireEvent.click(screen.getByRole('button', { name: /add 1/i }))
     expect(document.querySelector('.count-display strong')).toHaveTextContent('19')
-    fireEvent.click(screen.getByRole('button', { name: /reset to official count/i }))
-    expect(document.querySelector('.count-display strong')).toHaveTextContent('24')
+    fireEvent.click(screen.getByRole('button', { name: /undo navy pt shirt.*19.*18/i }))
+    expect(document.querySelector('.count-display strong')).toHaveTextContent('18')
+    expect(screen.getByRole('status')).toHaveTextContent('Undid Navy PT Shirt · Medium: 19 → 18.')
   })
 
   it('searches by a normalized CDMIS number', () => {
@@ -67,6 +68,16 @@ describe('A.R.G.U.S. count workflow', () => {
     expect(screen.getByText(/Accessories · Not assigned/)).toBeInTheDocument()
     expect(screen.getByText('98')).toBeInTheDocument()
     expect(screen.getByText('6 tracked variants')).toBeInTheDocument()
+  })
+
+  it('warns about duplicate names and supports optional low-stock thresholds', () => {
+    render(<App />)
+    fireEvent.click(screen.getAllByRole('button', { name: /inventory/i })[0])
+    fireEvent.click(screen.getByRole('button', { name: /add item/i }))
+    fireEvent.change(screen.getByLabelText('Item name'), { target: { value: 'Navy PT Shirt' } })
+    expect(screen.getByRole('alert')).toHaveTextContent('Possible duplicate')
+    fireEvent.click(screen.getByLabelText('Enable low-stock warning'))
+    expect(screen.getByLabelText('Low-stock threshold')).toBeInTheDocument()
   })
 
   it('keeps inventory and cadet totals consistent', () => {
