@@ -1,7 +1,7 @@
 import type { AppData } from './types'
 
 export const seedData: AppData = {
-  version: 2,
+  version: 3,
   schoolYear: 2026,
   inventory: [
     { id: 'shirt-pt-m', name: 'Navy PT Shirt', category: 'PT Gear', sizes: ['Small', 'Medium', 'Large', 'X-Large'], size: 'Medium', niin: '8415-EX-1001', onHand: 24, issued: 18, reorderAt: 10, countBy: 1, status: 'Healthy' },

@@ -5,6 +5,10 @@ import {
   UserRound, Users, Wifi, LogOut, FileUp, CalendarRange, KeyRound, X, Check, Shirt,
 } from 'lucide-react'
 import { loadData, matchesSearch, rollover, saveData, statusFor, submitCount, transact, withAudit } from './domain'
+import { submitEventForAudit } from './audit/service'
+import { MockBlockchainProvider } from './blockchain/MockBlockchainProvider'
+import { MockSigner } from './blockchain/MockSigner'
+import { resolveBlockchainMode } from './blockchain/config'
 import type { AppData, InventoryItem } from './types'
 
 type Tab = 'count' | 'inventory' | 'cadets' | 'activity' | 'more'
@@ -19,6 +23,12 @@ const navItems: { id: Tab; label: string; icon: typeof Activity }[] = [
 ]
 
 function App() {
+  const blockchainMode = resolveBlockchainMode(import.meta.env.VITE_ARGUS_BLOCKCHAIN_MODE)
+  const [auditRuntime] = useState(() => {
+    if (blockchainMode === 'testnet') return null
+    const signer = new MockSigner()
+    return { signer, provider: new MockBlockchainProvider(signer) }
+  })
   const [tab, setTab] = useState<Tab>('count')
   const [data, setData] = useState<AppData>(() => loadData())
   const items = data.inventory
@@ -37,6 +47,16 @@ function App() {
   }, [items, query])
 
   useEffect(() => saveData(data), [data])
+  useEffect(() => {
+    if (!auditRuntime) return
+    const queued = data.audit.find(event => event.audit.status === 'QUEUED_FOR_AUDIT')
+    if (!queued) return
+    let active = true
+    void submitEventForAudit(queued, auditRuntime.provider, auditRuntime.signer).then(audited => {
+      if (active) setData(current => ({ ...current, audit: current.audit.map(event => event.eventId === audited.eventId ? audited : event) }))
+    })
+    return () => { active = false }
+  }, [auditRuntime, data.audit])
   useEffect(() => {
     if (!notice) return
     const timeout = window.setTimeout(() => setNotice(''), 4000)
@@ -102,6 +122,10 @@ function App() {
       </aside>
 
       <main className="main-stage">
+        <div className={`environment-banner ${blockchainMode}`} aria-label="Blockchain development environment">
+          <strong>{blockchainMode === 'mock' ? 'MOCK BLOCKCHAIN' : 'BSV TESTNET'}</strong>
+          <span>Development environment · No production transactions</span>
+        </div>
         <header className="topbar">
           <div><p className="eyebrow">BETHEL NJROTC SUPPLY</p><h1>{pageTitle(tab)}</h1></div>
           <div className="top-actions"><span className="sync"><Wifi size={15} /> Local draft</span><button className="icon-button" aria-label="Settings"><Settings size={20} /></button><span className="top-avatar">RW</span></div>
@@ -119,7 +143,7 @@ function App() {
         {navItems.map(({ id, label, icon: Icon }) => <button className={tab === id ? 'active' : ''} key={id} onClick={() => setTab(id)}><Icon size={21} /><span>{label}</span></button>)}
       </nav>
 
-      {showAdd && <AddItemModal inventory={items} onClose={() => setShowAdd(false)} onSave={(item) => { const created = { ...item, id: crypto.randomUUID(), issued: 0, status: statusFor(item) }; setData(current => withAudit({ ...current, inventory: [...current.inventory, created] }, 'item.created', `Created ${created.name}`, created.id)); setShowAdd(false); setNotice(`${created.name} was added.`) }} />}
+      {showAdd && <AddItemModal inventory={items} onClose={() => setShowAdd(false)} onSave={(item) => { const created = { ...item, id: crypto.randomUUID(), issued: 0, status: statusFor(item) }; setData(current => withAudit({ ...current, inventory: [...current.inventory, created] }, 'INVENTORY_ITEM_CREATED', `Created ${created.name}`, created.id, { itemId: created.id })); setShowAdd(false); setNotice(`${created.name} was added.`) }} />}
       {panel && <DemoPanel data={data} panel={panel} count={count} official={selected.onHand} onClose={() => setPanel(null)} onOpen={setPanel} onSubmitCount={() => { runAction(current => submitCount(current), 'Physical count submitted.'); setPanel(null) }} onIssue={() => { runAction(current => transact(current, selected.id, 1, 'issue', 'cadet-am'), `Issued 1 ${selected.name}.`); setPanel(null) }} onReturn={() => { runAction(current => transact(current, selected.id, 1, 'return', 'cadet-am'), `Returned 1 ${selected.name}.`); setPanel(null) }} onRollover={() => { runAction(current => rollover(current, true), 'Annual rollover completed.'); setPanel(null) }} />}
     </div>
   )
@@ -211,7 +235,7 @@ function CadetsView({ cadets, query, setQuery, onOpen }: { cadets: AppData['cade
 }
 
 function ActivityView({ data }: { data: AppData }) {
-  return <div className="content"><section className="page-intro"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Nothing changes silently.</h2><p>A local, append-only record of actions and outcomes.</p></div></section><div className="timeline">{data.audit.length ? data.audit.map(event => <div className="event" key={event.id}><span className="event-icon"><History/></span><div><strong>{event.summary}</strong><p>{event.type}</p></div><span className="event-user">{event.actor.split(' ').map(v => v[0]).join('')}</span><time>{new Date(event.at).toLocaleString()}</time></div>) : <div className="empty-state">No activity yet. Completed actions will appear here.</div>}</div></div>
+  return <div className="content"><section className="page-intro"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Nothing changes silently.</h2><p>Private operational details stay local; privacy-safe commitments receive verifiable audit metadata.</p></div></section><div className="timeline">{data.audit.length ? data.audit.map(event => <div className="event" key={event.eventId}><span className="event-icon"><History/></span><div className="event-details"><strong>{event.summary}</strong><p>{event.type}</p><div className="audit-metadata"><span><b>Audit</b> {event.audit.status}</span><span><b>Network</b> {event.audit.network}</span>{event.audit.eventHash && <span title={event.audit.eventHash}><b>Hash</b> {event.audit.eventHash.slice(0, 16)}…</span>}{event.audit.transactionId && <span title={event.audit.transactionId}><b>Transaction</b> {event.audit.transactionId.slice(0, 24)}…</span>}</div></div><span className="event-user" title={event.actorId}>SS</span><time>{new Date(event.timestamp).toLocaleString()}</time></div>) : <div className="empty-state">No activity yet. Completed actions will appear here.</div>}</div></div>
 }
 
 function MoreView({ onOpen }: { onOpen: (panel: Panel) => void }) {
