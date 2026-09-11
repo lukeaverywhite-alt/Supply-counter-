@@ -98,6 +98,7 @@ describe('A.R.G.U.S. count workflow', () => {
     expect(screen.getByRole('heading', { name: 'Cadet property records.' })).toBeInTheDocument()
     fireEvent.click(screen.getAllByRole('button', { name: /activity/i })[0])
     expect(screen.getByRole('heading', { name: 'Nothing changes silently.' })).toBeInTheDocument()
+    expect(screen.getByLabelText('A.R.G.U.S. distributed system')).toHaveTextContent('LOCAL ONLY · NO SYNC PROVIDER CONNECTED')
   })
 
   it('demonstrates sign-in and count-review panels', () => {

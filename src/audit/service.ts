@@ -10,7 +10,8 @@ export async function submitEventForAudit(event: AuditEvent, provider: Blockchai
     const pending = { ...event, audit: { ...event.audit, status: 'SUBMITTING' as const, eventHash, signature, publicIdentity } }
     const commitment: SignedAuditCommitment = { event: pending, eventHash, signature, publicIdentity }
     const result = await provider.submitAuditEvent(commitment)
-    return { ...pending, audit: { ...pending.audit, status: result.status, network: result.network, transactionId: result.transactionId } }
+    if (result.network !== event.audit.targetNetwork) throw new Error('Audit provider submitted to an unexpected network.')
+    return { ...pending, audit: { ...pending.audit, status: result.status, submittedNetwork: result.network, transactionId: result.transactionId } }
   } catch (error) {
     return { ...event, audit: { ...event.audit, status: 'FAILED', error: error instanceof Error ? error.message : 'Audit submission failed.' } }
   }

@@ -66,3 +66,7 @@ Authentication, shared real-time counting, production roster imports, backend pe
 The mock provider makes no network requests and every simulated transaction ID starts with `MOCK_TX_`. A.R.G.U.S. continues to use off-chain local application state for fast inventory and roster queries. Read-only actions do not create audit transactions.
 
 See [the BSV architecture](docs/BSV_ARCHITECTURE.md) and [security model](docs/SECURITY_MODEL.md) before changing network or signing behavior.
+
+## Stage 2 distributed proof
+
+Stage 2 adds permission-enforced mock identities and signed authority chains, append-only replica/event/outbox abstractions, IndexedDB and memory repositories, idempotent mock multi-client synchronization, explicit inventory conflicts, and correction events. It does **not** claim production key custody, encrypted private-history replication, an operational overlay, or a completed testnet transaction. See [the distributed architecture](docs/DISTRIBUTED_ARCHITECTURE.md), [offline sync](docs/OFFLINE_SYNC.md), [identity model](docs/IDENTITY_MODEL.md), and [testnet result](docs/BSV_TESTNET.md).
