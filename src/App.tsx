@@ -4,7 +4,7 @@ import {
   LayoutGrid, Minus, PackagePlus, Plus, RotateCcw, Search, Settings, ShieldCheck,
   UserRound, Users, Wifi, LogOut, FileUp, CalendarRange, KeyRound, X, Check, Shirt,
 } from 'lucide-react'
-import { loadData, rollover, saveData, submitCount, transact, withAudit } from './domain'
+import { loadData, matchesSearch, rollover, saveData, statusFor, submitCount, transact, withAudit } from './domain'
 import type { AppData, InventoryItem } from './types'
 
 type Tab = 'count' | 'inventory' | 'cadets' | 'activity' | 'more'
@@ -30,10 +30,10 @@ function App() {
   const [panel, setPanel] = useState<Panel>(null)
   const [cadetQuery, setCadetQuery] = useState('')
   const [notice, setNotice] = useState('')
+  const [countHistory, setCountHistory] = useState<{ itemId: string; itemName: string; from: number; to: number }[]>([])
   const selected = items.find((item) => item.id === selectedId) ?? items[0]
   const filtered = useMemo(() => {
-    const value = query.toLowerCase().replaceAll('-', '').replaceAll(' ', '')
-    return items.filter((item) => `${item.name}${item.category}${item.size}${item.niin}`.toLowerCase().replaceAll('-', '').replaceAll(' ', '').includes(value))
+    return items.filter((item) => matchesSearch(query, item.name, item.category, item.size, item.niin))
   }, [items, query])
 
   useEffect(() => saveData(data), [data])
@@ -43,10 +43,25 @@ function App() {
     return () => window.clearTimeout(timeout)
   }, [notice])
 
-  const updateCount = (value: number) => {
+  const updateCount = (value: number, remember = true) => {
     const safeValue = Math.max(0, value)
+    if (safeValue === count) return
+    if (remember) setCountHistory(current => [...current, { itemId: selected.id, itemName: `${selected.name} · ${selected.size}`, from: count, to: safeValue }])
     setCount(safeValue)
     setData(current => ({ ...current, session: { ...current.session, status: 'draft', submittedAt: undefined, counts: { ...current.session.counts, [selected.id]: safeValue } } }))
+  }
+
+  const undoCount = () => {
+    const last = countHistory.at(-1)
+    if (!last) return
+    const item = items.find(entry => entry.id === last.itemId)
+    if (!item) return
+    setSelectedId(item.id)
+    setCount(last.from)
+    setStep(item.countBy)
+    setData(current => ({ ...current, session: { ...current.session, counts: { ...current.session.counts, [item.id]: last.from } } }))
+    setCountHistory(current => current.slice(0, -1))
+    setNotice(`Undid ${last.itemName}: ${last.to} → ${last.from}.`)
   }
 
   const selectItem = (item: InventoryItem) => {
@@ -93,7 +108,7 @@ function App() {
         </header>
 
         {notice && <div className="app-notice" role="status">{notice}</div>}
-        {tab === 'count' && <CountView session={data.session} selected={selected} count={count} setCount={updateCount} step={step} setStep={setStep} query={query} setQuery={setQuery} filtered={filtered} selectItem={selectItem} onReview={() => setPanel('review')} />}
+        {tab === 'count' && <CountView session={data.session} selected={selected} count={count} setCount={updateCount} step={step} setStep={setStep} query={query} setQuery={setQuery} filtered={filtered} selectItem={selectItem} onReview={() => setPanel('review')} lastAction={countHistory.at(-1)} onUndo={undoCount} />}
         {tab === 'inventory' && <InventoryView items={filtered} query={query} setQuery={setQuery} onAdd={() => setShowAdd(true)} selectItem={(item) => { selectItem(item); setTab('count') }} />}
         {tab === 'cadets' && <CadetsView cadets={data.cadets} query={cadetQuery} setQuery={setCadetQuery} onOpen={() => setPanel('cadet')} />}
         {tab === 'activity' && <ActivityView data={data} />}
@@ -104,8 +119,8 @@ function App() {
         {navItems.map(({ id, label, icon: Icon }) => <button className={tab === id ? 'active' : ''} key={id} onClick={() => setTab(id)}><Icon size={21} /><span>{label}</span></button>)}
       </nav>
 
-      {showAdd && <AddItemModal onClose={() => setShowAdd(false)} onSave={(item) => { const created = { ...item, id: crypto.randomUUID(), issued: 0, status: 'Ready' as const }; setData(current => withAudit({ ...current, inventory: [...current.inventory, created] }, 'item.created', `Created ${created.name}`, created.id)); setShowAdd(false); setNotice(`${created.name} was added.`) }} />}
-      {panel && <DemoPanel panel={panel} count={count} official={selected.onHand} onClose={() => setPanel(null)} onOpen={setPanel} onSubmitCount={() => { runAction(current => submitCount(current), 'Physical count submitted.'); setPanel(null) }} onIssue={() => { runAction(current => transact(current, selected.id, 1, 'issue', 'cadet-am'), `Issued 1 ${selected.name}.`); setPanel(null) }} onReturn={() => { runAction(current => transact(current, selected.id, 1, 'return', 'cadet-am'), `Returned 1 ${selected.name}.`); setPanel(null) }} onRollover={() => { runAction(current => rollover(current, true), 'Annual rollover completed.'); setPanel(null) }} />}
+      {showAdd && <AddItemModal inventory={items} onClose={() => setShowAdd(false)} onSave={(item) => { const created = { ...item, id: crypto.randomUUID(), issued: 0, status: statusFor(item) }; setData(current => withAudit({ ...current, inventory: [...current.inventory, created] }, 'item.created', `Created ${created.name}`, created.id)); setShowAdd(false); setNotice(`${created.name} was added.`) }} />}
+      {panel && <DemoPanel data={data} panel={panel} count={count} official={selected.onHand} onClose={() => setPanel(null)} onOpen={setPanel} onSubmitCount={() => { runAction(current => submitCount(current), 'Physical count submitted.'); setPanel(null) }} onIssue={() => { runAction(current => transact(current, selected.id, 1, 'issue', 'cadet-am'), `Issued 1 ${selected.name}.`); setPanel(null) }} onReturn={() => { runAction(current => transact(current, selected.id, 1, 'return', 'cadet-am'), `Returned 1 ${selected.name}.`); setPanel(null) }} onRollover={() => { runAction(current => rollover(current, true), 'Annual rollover completed.'); setPanel(null) }} />}
     </div>
   )
 }
@@ -118,14 +133,19 @@ function pageTitle(tab: Tab) {
   return { count: 'Physical Count', inventory: 'Inventory', cadets: 'Cadets', activity: 'Activity', more: 'Command Center' }[tab]
 }
 
+function sessionLabel(status: AppData['session']['status']) {
+  return ({ draft: 'Draft', active: 'Active', submitted: 'Submitted', 'needs-approval': 'Needs Approval', reconciled: 'Reconciled', cancelled: 'Cancelled' })[status]
+}
+
 type CountProps = {
   session: AppData['session'];
   selected: InventoryItem; count: number; setCount: (value: number) => void; step: number; setStep: (value: number) => void
   query: string; setQuery: (value: string) => void; filtered: InventoryItem[]; selectItem: (item: InventoryItem) => void
   onReview: () => void
+  lastAction?: { itemName: string; from: number; to: number }; onUndo: () => void
 }
 
-function CountView({ session, selected, count, setCount, step, setStep, query, setQuery, filtered, selectItem, onReview }: CountProps) {
+function CountView({ session, selected, count, setCount, step, setStep, query, setQuery, filtered, selectItem, onReview, lastAction, onUndo }: CountProps) {
   const difference = count - selected.onHand
   const chooseCustomStep = () => {
     const response = window.prompt('Enter a count increment greater than zero', String(step))
@@ -136,7 +156,7 @@ function CountView({ session, selected, count, setCount, step, setStep, query, s
   return <div className="content count-page">
     <section className="hero-row">
       <div><div className="section-kicker"><span /><b>ACTIVE SESSION</b><span /></div><h2>Count with confidence.</h2><p>Every tap is saved to this draft. Official inventory changes only after review.</p></div>
-      <div className="session-chip"><span className="pulse" /><div><small>{session.status.toUpperCase()}</small><strong>{session.name}</strong></div><ChevronDown size={16} /></div>
+      <div className="session-chip"><span className="pulse" /><div><small>{sessionLabel(session.status).toUpperCase()}</small><strong>{session.name}</strong></div><ChevronDown size={16} /></div>
     </section>
 
     <div className="search-wrap">
@@ -153,7 +173,7 @@ function CountView({ session, selected, count, setCount, step, setStep, query, s
           <button className="stone-button minus" onClick={() => setCount(Math.max(0, count - step))}><Minus /><span>Subtract {step}</span></button>
           <button className="stone-button plus" onClick={() => setCount(count + step)}><Plus /><span>Add {step}</span></button>
         </div>
-        <button className="undo-button" onClick={() => setCount(selected.onHand)}><RotateCcw size={16} /> Reset to official count</button>
+        <button className="undo-button" disabled={!lastAction} onClick={onUndo}><RotateCcw size={16} /> {lastAction ? `Undo ${lastAction.itemName}: ${lastAction.to} → ${lastAction.from}` : 'Nothing to undo'}</button>
       </section>
 
       <aside className="review-card">
@@ -172,11 +192,11 @@ function CountView({ session, selected, count, setCount, step, setStep, query, s
 function InventoryView({ items, query, setQuery, onAdd, selectItem }: { items: InventoryItem[]; query: string; setQuery: (v: string) => void; onAdd: () => void; selectItem: (i: InventoryItem) => void }) {
   const totalOnHand = items.reduce((total, item) => total + item.onHand, 0)
   const totalIssued = items.reduce((total, item) => total + item.issued, 0)
-  const attentionCount = items.filter((item) => item.status !== 'Ready').length
+  const attentionCount = items.filter((item) => item.status !== 'Healthy').length
   return <div className="content"><section className="page-intro"><div><p className="eyebrow">SERVICEABLE INVENTORY</p><h2>Every asset, accounted for.</h2><p>Search by item, size, category, or CDMIS NIIN.</p></div><button className="gold-button" onClick={onAdd}><PackagePlus size={18} /> Add item</button></section>
     <div className="summary-grid"><Summary label="On hand" value={String(totalOnHand)} detail={`${items.length} tracked variant${items.length === 1 ? '' : 's'}`} /><Summary label="Issued" value={String(totalIssued)} detail="Across active cadets" /><Summary label="Needs attention" value={String(attentionCount)} detail="Low stock or count due" accent /></div>
     <div className="table-card"><div className="table-tools"><div className="inline-search"><Search size={18}/><input aria-label="Search inventory table" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search inventory…" /></div><button><Settings size={17}/> Filters</button></div>
-      <div className="inventory-list">{items.map((item) => <button className="inventory-row" key={item.id} onClick={() => selectItem(item)}><span className="category-mark">{item.name.slice(0,2).toUpperCase()}</span><span className="item-name"><strong>{item.name}</strong><small>{item.category} · {item.niin}</small></span><span><small>SIZE</small><b>{item.size}</b></span><span><small>ON HAND</small><b>{item.onHand}</b></span><span><small>ISSUED</small><b>{item.issued}</b></span><em className={item.status === 'Ready' ? 'ready' : 'attention'}>{item.status}</em><ArrowRight size={18}/></button>)}</div>
+      <div className="inventory-list">{items.map((item) => <button className="inventory-row" key={item.id} onClick={() => selectItem(item)}><span className="category-mark">{item.name.slice(0,2).toUpperCase()}</span><span className="item-name"><strong>{item.name}</strong><small>{item.category} · {item.niin}</small></span><span><small>SIZE</small><b>{item.size}</b></span><span><small>ON HAND</small><b>{item.onHand}</b></span><span><small>ISSUED</small><b>{item.issued}</b></span><em className={item.status === 'Healthy' ? 'ready' : 'attention'}>{item.status}</em><ArrowRight size={18}/></button>)}</div>
     </div>
   </div>
 }
@@ -186,7 +206,7 @@ function Summary({ label, value, detail, accent = false }: { label: string; valu
 }
 
 function CadetsView({ cadets, query, setQuery, onOpen }: { cadets: AppData['cadets']; query: string; setQuery: (value: string) => void; onOpen: () => void }) {
-  const visible = cadets.filter(cadet => `${cadet.name} ${cadet.level}`.toLowerCase().includes(query.toLowerCase()))
+  const visible = cadets.filter(cadet => matchesSearch(query, cadet.name, cadet.name.split(' ').reverse().join(' '), cadet.level, cadet.configuration))
   return <div className="content"><section className="page-intro"><div><p className="eyebrow">PERSONNEL ACCOUNTABILITY</p><h2>Cadet property records.</h2><p>Fictional records are shown in this front-end preview.</p></div><button className="gold-button"><UserRound size={18}/> Add cadet</button></section><div className="table-card"><div className="table-tools"><div className="inline-search"><Search size={18}/><input aria-label="Search cadets" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search cadet name…" /></div></div><div className="cadet-grid">{visible.map(cadet => <button className="cadet-card" key={cadet.id} onClick={onOpen}><span className="large-avatar">{cadet.initials}</span><span><strong>{cadet.name}</strong><small>{cadet.level} · {cadet.configuration}</small></span><div><b>{cadet.items}</b><small>Issued items</small></div><em className={cadet.status === 'Clear' ? 'ready' : 'attention'}>{cadet.status}</em><ArrowRight size={18}/></button>)}</div></div></div>
 }
 
@@ -199,7 +219,7 @@ function MoreView({ onOpen }: { onOpen: (panel: Panel) => void }) {
   return <div className="content"><section className="page-intro"><div><p className="eyebrow">ADMINISTRATION</p><h2>Command center.</h2><p>Protected tools for keeping A.R.G.U.S. ready.</p></div></section><div className="command-grid">{options.map(({icon:Icon,title,desc,panel}) => <button key={title} onClick={() => onOpen(panel)}><span><Icon/></span><div><strong>{title}</strong><p>{desc}</p></div><ArrowRight/></button>)}</div></div>
 }
 
-function DemoPanel({ panel, count, official, onClose, onOpen, onSubmitCount, onIssue, onReturn, onRollover }: { panel: Exclude<Panel, null>; count: number; official: number; onClose: () => void; onOpen: (panel: Panel) => void; onSubmitCount: () => void; onIssue: () => void; onReturn: () => void; onRollover: () => void }) {
+function DemoPanel({ data, panel, count, official, onClose, onOpen, onSubmitCount, onIssue, onReturn, onRollover }: { data: AppData; panel: Exclude<Panel, null>; count: number; official: number; onClose: () => void; onOpen: (panel: Panel) => void; onSubmitCount: () => void; onIssue: () => void; onReturn: () => void; onRollover: () => void }) {
   const difference = count - official
   const screens = {
     signin: { kicker: 'SECURE DEMONSTRATION', title: 'Welcome back', icon: KeyRound },
@@ -223,7 +243,7 @@ function DemoPanel({ panel, count, official, onClose, onOpen, onSubmitCount, onI
     {panel === 'return' && <><Notice text="Returning one selected inventory item from Alex Morgan"/><PanelRows selectable rows={['Navy PT Shirt · Medium|Issued Aug 18','Navy PT Shorts · Medium|Issued Aug 18']} /><label className="field">Return condition<select><option>Serviceable</option><option>Laundry / inspection</option><option>Unserviceable</option></select></label><button className="primary-button" onClick={onReturn}>Record return <RotateCcw size={17}/></button></>}
     {panel === 'review' && <><Notice text="Submitting updates official inventory and creates an audit record"/><div className="review-hero"><div><small>OFFICIAL</small><strong>{official}</strong></div><ArrowRight/><div><small>PHYSICAL</small><strong>{count}</strong></div></div><div className={difference === 0 ? 'difference match' : 'difference warning'}><Activity/><div><small>DISCREPANCY</small><strong>{difference > 0 ? '+' : ''}{difference} units</strong><p>{difference === 0 ? 'No adjustment required.' : 'The adjustment will be recorded.'}</p></div></div><label className="field">Review note<textarea placeholder="Optional context for the audit record" /></label><button className="primary-button" onClick={onSubmitCount}>Submit count <ShieldCheck size={17}/></button></>}
     {panel === 'bundles' && <><Notice text="Select a standard configuration, then confirm sizes."/><PanelRows selectable rows={['Standard A · NS1|8 required pieces','PT Gear starter|3 required pieces','Drill team add-on|4 optional pieces']} /><button className="primary-button">Continue to sizes <ArrowRight size={17}/></button></>}
-    {panel === 'needed' && <PanelRows rows={['Alex Morgan · Black Oxford Shoes|Size 10 Regular · Open 23 days','Taylor Sample · Navy PT Shorts|Size Medium · Awaiting stock']} />}
+    {panel === 'needed' && <><Notice text={`${data.stillNeeded.length} open requirement${data.stillNeeded.length === 1 ? '' : 's'} · availability updates with inventory`}/><div className="needed-list">{data.stillNeeded.map(need => { const cadet = data.cadets.find(entry => entry.id === need.cadetId); const item = data.inventory.find(entry => entry.id === need.itemId); const available = (item?.onHand ?? 0) >= need.quantity; return <div className="needed-row" key={need.id}><div><strong>{cadet?.name ?? 'Unknown cadet'}</strong><small>{item?.name ?? 'Unknown item'} · Size {need.requiredSize}</small></div><b>{need.quantity}</b><time>{new Date(need.firstNeededAt).toLocaleDateString()}</time><em className={available ? 'ready' : 'attention'}>{available ? 'Now available' : 'Awaiting stock'}</em></div> })}</div></>}
     {panel === 'roster' && <><div className="drawer-toolbar"><button onClick={() => onOpen('import')}><FileUp/> Import roster</button><button onClick={() => onOpen('rollover')}><CalendarRange/> Preview rollover</button></div><PanelRows rows={['Alex Morgan|NS1 · Alpha','Jordan Carter|NS3 · Bravo','Taylor Sample|NS4 · Staff']} /></>}
     {panel === 'rollover' && <><div className="review-hero"><div><small>PROMOTE</small><strong>2</strong></div><div><small>ARCHIVE</small><strong>1</strong></div><div><small>REVIEW</small><strong>1</strong></div></div><PanelRows rows={['Alex Morgan · NS1 → NS2|Ready','Jordan Carter · NS3 → NS4|Ready','Taylor Sample · NS4|Archive after returns · Review']} /><button className="primary-button" onClick={onRollover}>Complete rollover</button></>}
     {panel === 'import' && <><Notice text="cadet_roster_demo.csv · No data has been saved"/><div className="validation"><Check/><div><strong>22 rows ready</strong><p>2 rows need review before import</p></div></div><PanelRows rows={['Row 8 · Duplicate student ID|Needs review','Row 19 · Missing company|Needs review']} /><button className="primary-button">Import 22 valid records</button></>}
@@ -234,9 +254,10 @@ function DemoPanel({ panel, count, official, onClose, onOpen, onSubmitCount, onI
 function Notice({ text }: { text: string }) { return <div className="notice"><ShieldCheck size={17}/><span>{text}</span></div> }
 function PanelRows({ rows, selectable = false }: { rows: string[]; selectable?: boolean }) { return <div className="panel-rows">{rows.map((row, index) => { const [title, detail] = row.split('|'); return <label key={title}>{selectable && <input type="checkbox" defaultChecked={index < 2}/>}<span><strong>{title}</strong><small>{detail}</small></span>{!selectable && <ArrowRight size={16}/>}</label> })}</div> }
 
-function AddItemModal({ onClose, onSave }: { onClose: () => void; onSave: (item: Omit<InventoryItem, 'id' | 'issued' | 'status'>) => void }) {
-  const [name, setName] = useState(''); const [category, setCategory] = useState(''); const [size, setSize] = useState(''); const [niin, setNiin] = useState(''); const [qty, setQty] = useState(0)
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal" onSubmit={(e) => { e.preventDefault(); const resolvedSize = size || 'No size'; onSave({ name, category, sizes: resolvedSize.split(',').map(value => value.trim()).filter(Boolean), size: resolvedSize.split(',')[0].trim(), niin: niin || 'Not assigned', onHand: qty, reorderAt: 0, countBy: 1 }) }} onMouseDown={(e) => e.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">INVENTORY ADMINISTRATION</p><h2>Add a new item</h2></div><button type="button" onClick={onClose}>×</button></div><p>Create the core item now. Sizes and ordering details remain editable.</p><label>Item name<input required value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Navy PT Shirt" /></label><div className="form-grid"><label>Category<input required value={category} onChange={e => setCategory(e.target.value)} placeholder="PT Gear" /></label><label>Size or variant<input value={size} onChange={e => setSize(e.target.value)} placeholder="Medium" /></label><label>CDMIS NIIN<input value={niin} onChange={e => setNiin(e.target.value)} placeholder="Optional" /></label><label>Initial on hand<input type="number" min="0" value={qty} onChange={e => setQty(Number(e.target.value))} /></label></div><div className="modal-actions"><button type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit">Add item <ArrowRight size={17}/></button></div></form></div>
+function AddItemModal({ inventory, onClose, onSave }: { inventory: InventoryItem[]; onClose: () => void; onSave: (item: Omit<InventoryItem, 'id' | 'issued' | 'status'>) => void }) {
+  const [name, setName] = useState(''); const [category, setCategory] = useState(''); const [size, setSize] = useState(''); const [niin, setNiin] = useState(''); const [qty, setQty] = useState(0); const [useThreshold, setUseThreshold] = useState(false); const [threshold, setThreshold] = useState(0)
+  const duplicates = inventory.filter(item => (name.trim().length >= 3 && matchesSearch(name, item.name)) || (niin.trim() && matchesSearch(niin, item.niin)))
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal" onSubmit={(e) => { e.preventDefault(); const resolvedSize = size || 'No size'; onSave({ name, category, sizes: resolvedSize.split(',').map(value => value.trim()).filter(Boolean), size: resolvedSize.split(',')[0].trim(), niin: niin || 'Not assigned', onHand: qty, reorderAt: useThreshold ? threshold : undefined, countBy: 1 }) }} onMouseDown={(e) => e.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">INVENTORY ADMINISTRATION</p><h2>Add a new item</h2></div><button type="button" onClick={onClose}>×</button></div><p>Create the core item now. Warning levels are optional.</p><label>Item name<input required value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Navy PT Shirt" /></label>{duplicates.length > 0 && <div className="duplicate-warning" role="alert"><strong>Possible duplicate</strong><span>{duplicates.map(item => `${item.name} · ${item.size} · ${item.niin}`).join(', ')}</span></div>}<div className="form-grid"><label>Category<input required value={category} onChange={e => setCategory(e.target.value)} placeholder="PT Gear" /></label><label>Size or variant<input value={size} onChange={e => setSize(e.target.value)} placeholder="Medium" /></label><label>CDMIS NIIN<input value={niin} onChange={e => setNiin(e.target.value)} placeholder="Optional" /></label><label>Initial on hand<input type="number" min="0" value={qty} onChange={e => setQty(Number(e.target.value))} /></label></div><label className="threshold-toggle"><input type="checkbox" checked={useThreshold} onChange={e => setUseThreshold(e.target.checked)}/> Enable low-stock warning</label>{useThreshold && <label>Warn when on hand is at or below<input aria-label="Low-stock threshold" type="number" min="0" value={threshold} onChange={e => setThreshold(Number(e.target.value))}/></label>}<div className="modal-actions"><button type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit">Add item <ArrowRight size={17}/></button></div></form></div>
 }
 
 export default App

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { seedData } from './data'
-import { applyBundle, loadData, rollover, submitCount, transact } from './domain'
+import { applyBundle, loadData, matchesSearch, rollover, statusFor, submitCount, transact } from './domain'
 
 const fresh = () => structuredClone(seedData)
 
@@ -42,5 +42,17 @@ describe('local inventory domain', () => {
 
   it('falls back safely when local data is corrupt', () => {
     expect(loadData({ getItem: () => '{bad json' }).version).toBe(2)
+  })
+
+  it('supports optional thresholds and distinct out-of-stock status', () => {
+    expect(statusFor({ onHand: 0 })).toBe('Out of stock')
+    expect(statusFor({ onHand: 4, reorderAt: 5 })).toBe('Low')
+    expect(statusFor({ onHand: 4 })).toBe('Healthy')
+  })
+
+  it('normalizes identifiers, abbreviations, and name order for search', () => {
+    expect(matchesSearch('8415 EX 2041', '8415-EX-2041')).toBe(true)
+    expect(matchesSearch('PT shirt', 'Physical Training Shirt')).toBe(true)
+    expect(matchesSearch('Morgan Alex', 'Morgan, Alex')).toBe(true)
   })
 })
