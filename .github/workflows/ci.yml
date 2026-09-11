@@ -24,6 +24,9 @@ jobs:
   verify:
     name: Test and build
     runs-on: ubuntu-latest
+    env:
+      # CI must never select a network that can broadcast transactions.
+      VITE_ARGUS_BLOCKCHAIN_MODE: mock
 
     steps:
       - name: Checkout repository

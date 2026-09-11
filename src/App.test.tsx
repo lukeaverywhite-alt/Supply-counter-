@@ -124,7 +124,7 @@ describe('A.R.G.U.S. count workflow', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Physical count submitted.')
     fireEvent.click(screen.getAllByRole('button', { name: /activity/i })[0])
     expect(screen.getByText(/Submitted Fall inventory/)).toBeInTheDocument()
-    expect(screen.getByText('count.submitted')).toBeInTheDocument()
+    expect(screen.getByText('INVENTORY_COUNT_SUBMITTED')).toBeInTheDocument()
   })
 
   it('records an issue in inventory, cadet totals, and the audit trail', () => {

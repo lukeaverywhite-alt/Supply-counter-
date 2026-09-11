@@ -47,6 +47,12 @@ body { overflow-x:hidden; background:
   linear-gradient(135deg,#f7f4eb 0%,#eef2f0 48%,#f4f1e8 100%); }
 .app-shell { position:relative; isolation:isolate; }
 .main-stage { position:relative; z-index:1; }
+.environment-banner { align-items:center; background:#fff4ce; border-bottom:1px solid #e0c66d; color:#594900; display:flex; font-size:12px; gap:12px; justify-content:center; letter-spacing:.03em; min-height:32px; padding:6px 18px; text-align:center; }
+.environment-banner strong { font-size:11px; letter-spacing:.11em; }
+.environment-banner.testnet { background:#eaf4ff; border-color:#9dc4ec; color:#123b67; }
+.audit-metadata { display:flex; flex-wrap:wrap; gap:5px 12px; margin-top:8px; }
+.audit-metadata span { background:#f1f4f8; border-radius:5px; color:#526070; font-size:10px; padding:4px 6px; }
+.audit-metadata b { color:#182b48; margin-right:3px; }
 .aether-field { position:fixed; z-index:0; inset:0 0 0 250px; overflow:hidden; pointer-events:none; }
 .aether-field:before { content:'ΑΡΓΟΣ  ·  ΔΕΛΤΑ  ·  ΩΜΕΓΑ  ·  ΝΙΚΗ  ·  ΑΘΗΝΑ'; position:absolute; top:110px; right:-45px; color:rgba(15,61,83,.055); font:700 32px Marcellus,serif; letter-spacing:13px; transform:rotate(90deg); transform-origin:right top; white-space:nowrap; }
 .aether-field:after { content:''; position:absolute; inset:0; opacity:.18; background-image:linear-gradient(rgba(27,129,146,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(27,129,146,.12) 1px,transparent 1px); background-size:72px 72px; mask-image:radial-gradient(circle at 80% 18%,black,transparent 52%); }

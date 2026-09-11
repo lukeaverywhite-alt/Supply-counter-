@@ -11,6 +11,7 @@ This repository currently contains the first functional front-end prototype. It 
 - Persisted local draft counts that remain separate from official inventory until submission
 - Functional local count submission, item creation, issue, return, and annual rollover actions
 - Local audit events for every inventory-changing action
+- Privacy-filtered, SHA-256 audit commitments with an offline mock blockchain provider
 - Search by item name, category, size, or normalized CDMIS NIIN
 - Inventory, cadet, activity, and administration views
 - Fictional data for safe interface review
@@ -52,3 +53,16 @@ The build uses relative asset paths so the installed app, manifest, icon, and se
 ## Product boundary
 
 Authentication, shared real-time counting, production roster imports, backend persistence, and authoritative audit storage require the planned backend phase. The current local prototype intentionally does not claim to provide those security guarantees.
+
+## BSV integration status
+
+**Current environment:** Development
+
+- **Supported:** local mock blockchain provider, deterministic audit hashing, mock signing/verification, retry and duplicate protection
+- **Not yet implemented:** real BSV testnet transactions (reserved for a separately verified Stage 2 adapter)
+- **Not enabled:** BSV mainnet; selecting it causes an explicit startup error
+- **Production funds:** never used
+
+The mock provider makes no network requests and every simulated transaction ID starts with `MOCK_TX_`. A.R.G.U.S. continues to use off-chain local application state for fast inventory and roster queries. Read-only actions do not create audit transactions.
+
+See [the BSV architecture](docs/BSV_ARCHITECTURE.md) and [security model](docs/SECURITY_MODEL.md) before changing network or signing behavior.

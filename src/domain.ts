@@ -1,5 +1,6 @@
 import { seedData } from './data'
-import type { AppData, AuditEvent, InventoryItem } from './types'
+import { appendDomainEvent, createDomainEvent } from './audit/events'
+import type { AppData, AuditEvent, DomainEventType, InventoryItem } from './types'
 
 export const STORAGE_KEY = 'argus.local.v2'
 
@@ -8,7 +9,7 @@ export function loadData(storage: Pick<Storage, 'getItem'> = localStorage): AppD
     const value = storage.getItem(STORAGE_KEY)
     if (!value) return structuredClone(seedData)
     const parsed = JSON.parse(value) as AppData
-    return parsed.version === 2 ? { ...parsed, stillNeeded: parsed.stillNeeded ?? [] } : structuredClone(seedData)
+    return parsed.version === 3 ? { ...parsed, stillNeeded: parsed.stillNeeded ?? [], audit: parsed.audit ?? [] } : structuredClone(seedData)
   } catch {
     return structuredClone(seedData)
   }
@@ -60,7 +61,7 @@ export function transact(data: AppData, itemId: string, quantity: number, kind: 
   const cadets = data.cadets.map(cadet => cadet.id !== cadetId ? cadet : ({
     ...cadet, items: Math.max(0, cadet.items + issuedDelta), status: kind === 'return' ? 'Clear' as const : cadet.status,
   }))
-  return withAudit({ ...data, inventory, cadets }, kind === 'issue' ? 'issue.recorded' : 'return.recorded', `${kind === 'issue' ? 'Issued' : 'Returned'} ${quantity} × ${target.name}`, itemId, { quantity, cadetId: cadetId ?? 'unassigned' })
+  return withAudit({ ...data, inventory, cadets }, kind === 'issue' ? 'ITEM_ISSUED' : 'ITEM_RETURNED', `${kind === 'issue' ? 'Issued' : 'Returned'} ${quantity} × ${target.name}`, itemId, { itemId, quantity })
 }
 
 export function applyBundle(data: AppData, bundleId: string, cadetId: string): AppData {
@@ -80,7 +81,7 @@ export function submitCount(data: AppData): AppData {
   }))
   const changed = Object.keys(data.session.counts).length
   const next = { ...data, inventory, session: { ...data.session, status: 'submitted' as const, submittedAt: new Date().toISOString() } }
-  return withAudit(next, 'count.submitted', `Submitted ${data.session.name} with ${changed} counted variant${changed === 1 ? '' : 's'}`, data.session.id, { changed })
+  return withAudit(next, 'INVENTORY_COUNT_SUBMITTED', `Submitted ${data.session.name} with ${changed} counted variant${changed === 1 ? '' : 's'}`, data.session.id, { countedVariants: changed, sessionId: data.session.id })
 }
 
 export function rollover(data: AppData, confirmed: boolean): AppData {
@@ -88,9 +89,10 @@ export function rollover(data: AppData, confirmed: boolean): AppData {
   if (data.session.status === 'draft' && Object.keys(data.session.counts).length) throw new Error('Submit or clear the active count before rollover.')
   const schoolYear = data.schoolYear + 1
   const next = { ...data, schoolYear, cadets: data.cadets.map(c => ({ ...c, active: c.level !== 'NS4', schoolYear, status: c.level === 'NS4' ? 'Return pending' as const : c.status })) }
-  return withAudit(next, 'rollover.completed', `Advanced roster to ${schoolYear}`, undefined, { schoolYear })
+  return withAudit(next, 'ANNUAL_ROLLOVER_COMPLETED', `Advanced roster to ${schoolYear}`, `school-year:${schoolYear}`, { schoolYear })
 }
 
-export function withAudit(data: AppData, type: AuditEvent['type'], summary: string, entityId?: string, metadata?: AuditEvent['metadata']): AppData {
-  return { ...data, audit: [{ id: crypto.randomUUID(), at: new Date().toISOString(), actor: 'Riley West', type, summary, entityId, metadata }, ...data.audit] }
+export function withAudit(data: AppData, type: DomainEventType, summary: string, entityId: string, eventData: AuditEvent['data'] = {}): AppData {
+  const previousEventHash = data.audit.find(event => event.audit.eventHash)?.audit.eventHash
+  return appendDomainEvent(data, createDomainEvent({ type, summary, entityId, data: eventData, previousEventHash }))
 }

@@ -47,18 +47,33 @@ export type StillNeeded = {
   firstNeededAt: string
 }
 
+export type DomainEventType = 'INVENTORY_ITEM_CREATED' | 'INVENTORY_COUNT_SUBMITTED' | 'ITEM_ISSUED' | 'ITEM_RETURNED' | 'ANNUAL_ROLLOVER_COMPLETED'
+export type AuditStatus = 'LOCAL' | 'QUEUED_FOR_AUDIT' | 'SUBMITTING' | 'SUBMITTED' | 'CONFIRMED' | 'FAILED'
+export type BlockchainNetwork = 'MOCK' | 'TESTNET'
+
 export type AuditEvent = {
-  id: string
-  at: string
-  actor: string
-  type: 'item.created' | 'count.submitted' | 'issue.recorded' | 'return.recorded' | 'rollover.completed'
+  eventVersion: 1
+  eventId: string
+  timestamp: string
+  actorId: string
+  type: DomainEventType
   summary: string
-  entityId?: string
-  metadata?: Record<string, string | number>
+  entityId: string
+  data: Record<string, string | number | boolean>
+  previousEventHash?: string
+  audit: {
+    status: AuditStatus
+    network: BlockchainNetwork
+    eventHash?: string
+    transactionId?: string
+    publicIdentity?: string
+    signature?: string
+    error?: string
+  }
 }
 
 export type AppData = {
-  version: 2
+  version: 3
   schoolYear: number
   inventory: InventoryItem[]
   cadets: Cadet[]
