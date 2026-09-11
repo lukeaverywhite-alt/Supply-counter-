@@ -30,7 +30,8 @@ describe('local inventory domain', () => {
     const next = submitCount(fresh())
     expect(next.inventory[0].onHand).toBe(18)
     expect(next.session.status).toBe('submitted')
-    expect(next.audit[0]).toMatchObject({ type: 'INVENTORY_COUNT_SUBMITTED', entityId: 'session-024', audit: { status: 'QUEUED_FOR_AUDIT', network: 'MOCK' } })
+    expect(next.audit[0]).toMatchObject({ type: 'INVENTORY_COUNT_SUBMITTED', entityId: 'session-024', audit: { status: 'QUEUED_FOR_AUDIT', targetNetwork: 'MOCK' } })
+    expect(next.audit[0].audit.submittedNetwork).toBeUndefined()
   })
 
   it('blocks rollover while a count is active and archives NS4 after submission', () => {

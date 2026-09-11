@@ -26,3 +26,9 @@ An unavailable audit provider must not discard an inventory operation. The event
 ## Threat controls and remaining work
 
 Stage 1 rejects unsupported modes and mainnet, filters commitment fields, detects altered meaningful event data, verifies mock signatures, and prevents duplicate mock submissions. It does not yet provide trusted authentication, server authorization, secure cryptographic key custody, durable synchronization, runtime schema validation, clock trust, multi-device ordering, or protection against a malicious browser user. These are mandatory production tasks, not guarantees of the prototype.
+
+## Stage 2 review
+
+Stage 2 moves authorization into a domain service and verifies signed events before inbound projection. Event IDs provide replay/idempotency protection and entity base versions detect the demonstrated final-unit conflict. Signed revocation is prospective; old valid history remains. Public commitment allow-list tests cover names, cadet IDs, gender, grade, student IDs, and notes. Target and submitted networks are separate, and provider network mismatch fails closed.
+
+Remaining risks are explicit: mock signatures provide no security; signed client clocks permit backdating without future ordering evidence; encrypted payload distribution and epoch-key rotation are not implemented; the Stage 1 UI still uses its legacy local snapshot while the Stage 2 repository is an isolated proof; general concurrency and transaction schema validation are incomplete; a malicious local runtime can alter unanchored state; and testnet/ARC/SPV were not verified. No private key, seed, credential secret, wallet file, real PII, or mainnet path was added.

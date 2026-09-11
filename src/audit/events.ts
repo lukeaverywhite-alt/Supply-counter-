@@ -8,6 +8,7 @@ export function createDomainEvent(input: {
   summary: string
   data: AuditEvent['data']
   previousEventHash?: string
+  targetNetwork?: 'MOCK' | 'TESTNET'
 }): AuditEvent {
   return {
     eventVersion: 1,
@@ -19,7 +20,7 @@ export function createDomainEvent(input: {
     summary: input.summary,
     data: input.data,
     previousEventHash: input.previousEventHash,
-    audit: { status: 'QUEUED_FOR_AUDIT', network: 'MOCK' },
+    audit: { status: 'QUEUED_FOR_AUDIT', targetNetwork: input.targetNetwork ?? 'MOCK' },
   }
 }
 

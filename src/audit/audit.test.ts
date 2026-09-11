@@ -6,7 +6,7 @@ import { MockBlockchainProvider } from '../blockchain/MockBlockchainProvider'
 import { MockSigner } from '../blockchain/MockSigner'
 
 function issuedEvent() {
-  return createDomainEvent({ type: 'ITEM_ISSUED', entityId: 'shirt-pt-m', summary: 'Private display text', data: { itemId: 'shirt-pt-m', quantity: 1, cadetName: 'Private Person', cadetId: 'C-48291' } })
+  return createDomainEvent({ type: 'ITEM_ISSUED', entityId: 'shirt-pt-m', summary: 'Private display text', data: { itemId: 'shirt-pt-m', quantity: 1, cadetName: 'Private Person', cadetId: 'C-48291', gender: 'private', grade: 'NS1', studentId: 'S-1', notes: 'private note' } })
 }
 
 describe('audit integrity and mock round trip', () => {
@@ -27,13 +27,14 @@ describe('audit integrity and mock round trip', () => {
     expect(commitment.data).toEqual({ itemId: 'shirt-pt-m', quantity: 1 })
     expect(JSON.stringify(commitment)).not.toContain('Private Person')
     expect(JSON.stringify(commitment)).not.toContain('C-48291')
+    expect(JSON.stringify(commitment)).not.toMatch(/gender|grade|studentId|notes|cadetName|cadetId/)
   })
 
   it('signs, submits, confirms, verifies, and prevents duplicate mock transactions', async () => {
     const signer = new MockSigner()
     const provider = new MockBlockchainProvider(signer)
     const audited = await submitEventForAudit(issuedEvent(), provider, signer)
-    expect(audited.audit).toMatchObject({ status: 'CONFIRMED', network: 'MOCK', publicIdentity: signer.identity })
+    expect(audited.audit).toMatchObject({ status: 'CONFIRMED', targetNetwork: 'MOCK', submittedNetwork: 'MOCK', publicIdentity: signer.identity })
     expect(audited.audit.transactionId).toMatch(/^MOCK_TX_/)
     const commitment = { event: audited, eventHash: audited.audit.eventHash!, signature: audited.audit.signature!, publicIdentity: audited.audit.publicIdentity! }
     expect(await provider.verifyAuditEvent(commitment, audited.audit.transactionId!)).toBe(true)

@@ -63,7 +63,8 @@ export type AuditEvent = {
   previousEventHash?: string
   audit: {
     status: AuditStatus
-    network: BlockchainNetwork
+    targetNetwork: BlockchainNetwork
+    submittedNetwork?: BlockchainNetwork
     eventHash?: string
     transactionId?: string
     publicIdentity?: string

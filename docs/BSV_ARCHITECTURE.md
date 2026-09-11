@@ -43,3 +43,7 @@ Before adding code, verify current official BSV documentation, maintained TypeSc
 ## Mainnet migration gate
 
 Moving from mock to testnet should only replace provider/signer/storage adapters. Mainnet requires a separate production implementation plus organizational approval, security and privacy reviews, explicit enablement, secure key custody, access controls, funding outside source code, backup/recovery drills, monitoring, incident response, and rollback procedures. It must never activate automatically or silently fall back between networks.
+
+## Stage 2 boundary
+
+The configured `targetNetwork` is recorded before submission; `submittedNetwork` is absent until a provider succeeds and must match the target. Stage 2 adds signed private-event/replica abstractions separately from public audit commitments. Its mock sync provider is not a blockchain provider or durable overlay. See `DISTRIBUTED_ARCHITECTURE.md` and ADR 002 for the overlay/private-history conclusion; testnet remains unimplemented rather than simulated.
