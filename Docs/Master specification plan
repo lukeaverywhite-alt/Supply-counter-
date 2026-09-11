@@ -1,0 +1,1352 @@
+A.R.G.U.S.
+
+Asset Readiness & Gear Utility System
+
+Master Product Specification
+
+Product status: Development / Prototype
+Primary organization: Local NJROTC unit
+Primary purpose: Replace and centralize the unit's normal Supply workflows in one specialized application.
+Architecture direction: Offline-first, multi-device, BSV-native identity/audit/synchronization architecture with no conventional centralized application database if the Stage 2 proof of concept demonstrates that this can be done safely and reliably.
+
+---
+
+1. PRODUCT VISION
+
+A.R.G.U.S. is a highly specialized supply-management system designed specifically around the workflows of this NJROTC unit.
+
+It is not intended to be a generic inventory application.
+
+The finished system should allow the Supply Department to perform the majority of its recurring work from one application, including:
+
+- inventory management
+- physical counting
+- uniform issue
+- uniform return
+- cadet property records
+- incomplete issue tracking
+- bundle management
+- readiness monitoring
+- supply calendar
+- AMI preparation
+- New Cadet Orientation preparation
+- BLT preparation
+- Military Ball preparation
+- End-of-Year inventory
+- alerts
+- multi-user synchronization
+- offline operations
+- authorization and roles
+- permanent correction history
+- cryptographically verifiable audit records
+- BSV-backed identity and event verification
+
+The guiding principle is:
+
+«A.R.G.U.S. should make Supply work faster, clearer, safer, more accurate, and easier to coordinate.»
+
+---
+
+2. EXPECTED USER POPULATION
+
+A.R.G.U.S. should initially support approximately 12 authorized users.
+
+Expected maximum:
+
+- 2 instructors
+- 4 Supply Officers
+- up to 6 Supply Assistants
+
+The architecture should not artificially limit the application to exactly 12 identities, but it should be optimized around a small trusted unit rather than internet-scale public registration.
+
+There is no public account-registration system.
+
+Accounts/identities must be authorized by A.R.G.U.S. authority credentials.
+
+---
+
+3. AUTHORITY AND IDENTITY MODEL
+
+A.R.G.U.S. should eventually use cryptographic identities instead of treating a username/password database as the ultimate source of authority.
+
+Each authorized user should possess their own cryptographic identity.
+
+The user's private signing key must remain under their control.
+
+Private keys must never:
+
+- be committed to Git
+- be stored in source code
+- be included in Vite environment variables
+- be transmitted to another user merely for role assignment
+- be written onto BSV
+- appear in logs
+- appear in screenshots
+- appear in analytics
+- be stored unencrypted in localStorage
+
+Root Authority
+
+A.R.G.U.S. must support a Root/Master Authority.
+
+The root authority can authorize other public identities.
+
+Conceptually:
+
+MASTER AUTHORITY
+→ authorizes Instructor
+→ authorizes Supply Officer
+→ authorizes Supply Assistant
+→ may delegate additional master authority
+
+Authorization should work by signing a credential or authorization event identifying:
+
+- authorized public identity
+- assigned role
+- permissions
+- creation date
+- issuer
+- optional expiration
+- authorization version
+- revocation status/reference
+
+The master authority should not need possession of another user's private key.
+
+Delegated Master Authority
+
+The architecture should allow the Root Authority to delegate master authority to another trusted identity.
+
+Do NOT accomplish this simply by copying the original master private key.
+
+Preferred future architecture:
+
+- separate master identity
+- signed delegation
+- revocation capability
+- optional multi-party approval for extremely sensitive changes
+
+The application should leave room for future threshold/multi-signature governance.
+
+---
+
+4. INITIAL ROLE MODEL
+
+Master Authority
+
+May eventually:
+
+- authorize users
+- revoke users
+- assign roles
+- change roles
+- delegate master authority
+- configure organizational security settings
+- manage production network authorization
+- manage bundle definitions
+- manage global application configuration
+- resolve major synchronization conflicts
+- approve privileged corrections
+- review complete audit history
+
+Instructor
+
+Instructor accounts should initially receive normal authorized keys unless separately elevated.
+
+Potential permissions:
+
+- view all supply information
+- view readiness
+- view audit records
+- issue
+- return
+- count
+- review cadet property
+- review events
+
+Do not automatically grant Master privileges merely because an account is an instructor.
+
+Supply Officer
+
+Expected operational administrators.
+
+Potential permissions:
+
+- inventory.read
+- inventory.issue
+- inventory.return
+- inventory.count
+- inventory.adjust
+- inventory.create
+- inventory.manageBundles
+- cadets.read
+- cadets.manage
+- calendar.read
+- calendar.write
+- alerts.manage
+- audit.read
+- conflicts.resolve
+
+Supply Assistant
+
+Expected daily operational role.
+
+Potential permissions:
+
+- inventory.read
+- inventory.issue
+- inventory.return
+- inventory.count
+- cadets.read
+- calendar.read
+- alerts.read
+
+More sensitive actions should require Supply Officer or higher authority.
+
+Permission definitions must remain configurable rather than being scattered through UI code.
+
+---
+
+5. DASHBOARD / HOME SCREEN
+
+The dashboard is the visual command center of A.R.G.U.S.
+
+The normal application taskbar/navigation should NOT appear on the dashboard.
+
+Instead, the dashboard itself becomes the navigation surface.
+
+Every other major page should contain the regular application navigation.
+
+Visual Theme
+
+Primary visual design:
+
+- midnight navy
+- gold
+- restrained electric/cyan highlights
+- futuristic command-center feel
+- professional military aesthetic
+- smooth animation
+- strong visual hierarchy
+- usable on phones, tablets, and desktop
+- respect reduced-motion accessibility settings
+
+Animated Readiness Tree
+
+The center of the dashboard should contain a highly animated stylized tree.
+
+The tree must be functional, not merely decorative.
+
+Its major branches/nodes should represent live supply readiness information.
+
+Potential structure:
+
+A.R.G.U.S.
+│
+├── CADETS
+│   └── number of cadets still requiring items
+│
+├── STOCK
+│   └── low/out-of-stock inventory alerts
+│
+├── EVENTS
+│   └── upcoming event readiness
+│
+└── READINESS
+└── overall supply readiness
+
+Example:
+
+CADETS
+17 NEED ITEMS
+
+STOCK
+8 NEED ATTENTION
+
+EVENTS
+2 ACTIVE PREPARATIONS
+
+READINESS
+86%
+
+Each branch/node must be clickable.
+
+Example:
+
+Clicking cadets needing items:
+→ opens Still Needed / Cadet Readiness
+
+Clicking stock:
+→ opens filtered Inventory Attention view
+
+Clicking events:
+→ opens Supply Calendar / Event Readiness
+
+Clicking readiness/trunk:
+→ opens a detailed Supply Readiness page
+
+Dashboard Information
+
+The home screen should also display:
+
+- current local date
+- current local time
+- critical alerts
+- upcoming supply event
+- countdown to event
+- synchronization status
+- audit health where appropriate
+
+Quick Actions
+
+Three operations must be exceptionally easy to locate:
+
+ISSUE
+
+RETURN
+
+COUNT
+
+These must use large, obvious, touch-friendly controls.
+
+Additional animated dashboard navigation may link to:
+
+- Inventory
+- Cadets
+- Calendar
+- Activity/Audit
+- Alerts
+- Administration
+
+---
+
+6. CADET RECORDS
+
+Each cadet record should contain at minimum:
+
+- internal opaque record identifier
+- full name
+- gender
+- NS grade / level: NS1, NS2, NS3, NS4
+- active/inactive state
+- current issued equipment
+- sizes associated with issued equipment
+- issue dates
+- return dates
+- complete issue/return history
+- items still needed
+- correction history affecting the cadet record
+
+Do not create individual unique asset IDs for every physical uniform item.
+
+A.R.G.U.S. tracks quantities/variants and what a cadet possesses.
+
+Gender is used partly to determine applicable bundle presets.
+
+Example:
+
+Male
+→ Male NSU bundle
+→ Male SDB bundle
+
+Female
+→ Female NSU bundle
+→ Female SDB bundle
+
+Bundle selection should still be manually overridable by authorized users.
+
+---
+
+7. INVENTORY MODEL
+
+Inventory should be managed primarily by:
+
+- item
+- category
+- size/variant
+- quantity on hand
+- quantity issued
+- optional low-stock threshold
+- status
+- optional CDMIS NIIN/reference
+- count increment
+- active/inactive state
+
+Statuses may include:
+
+- Healthy
+- Low
+- Out of Stock
+- Count Due
+- Reconciliation Required
+
+A.R.G.U.S. should detect likely duplicate inventory items.
+
+Search should support:
+
+- item name
+- common abbreviation
+- size
+- category
+- NIIN/reference
+- normalized punctuation/formatting
+
+---
+
+8. EDITABLE BUNDLE SYSTEM
+
+Bundles must NOT be permanently hard-coded into the UI.
+
+A.R.G.U.S. should ship with default presets but authorized users should be able to edit bundle definitions.
+
+Bundle definitions should contain:
+
+- bundle ID
+- display name
+- applicable gender if any
+- applicable purpose/event
+- list of items
+- whether each line is required or optional
+- whether the item supports sizing
+- default quantity
+- active/inactive state
+- version/history
+
+Changing a bundle should not silently rewrite historical transactions.
+
+Historical issue records must preserve which bundle/version was issued at that time.
+
+---
+
+9. DEFAULT BUNDLE PRESETS
+
+Male NSU Bundle
+
+Required:
+
+- Male Khaki Shirt
+- Black Trousers
+- Garrison Cap
+- Black Belt
+- Buckle
+- White Dress Shirt
+- Black Socks
+- Black Oxfords
+
+Female NSU Bundle
+
+Required:
+
+- Khaki Overblouse
+- Black Slacks
+- Garrison Cap
+- Black Oxfords
+- Pumps
+
+Male SDB Bundle
+
+Required:
+
+- Male SDB Jacket
+- Necktie
+
+Optional:
+
+- White Dress Shirt
+
+White combo cover and white gloves are NOT included in the current preset.
+
+Female SDB Bundle
+
+Required:
+
+- Female SDB Jacket
+- Neck Tabs
+- White Dress Shirt
+
+PT Bundle
+
+Required:
+
+- Gold PT Shirt
+- PT Shorts
+- Khaki Ball Cap
+
+Drill Bundle
+
+Required:
+
+- Tracksuit Top
+- Tracksuit Bottom
+
+BLT Bundle
+
+Required:
+
+- Khaki Shirt
+- Khaki Trousers
+- Khaki Belt
+- Brass Buckle
+- Platoon Shirt
+
+---
+
+10. ISSUE WORKFLOW
+
+Issue must be one of the simplest workflows in the application.
+
+Recommended sequence:
+
+1. Select/search cadet.
+2. Display cadet's current issued property and still-needed items.
+3. Choose:
+   - Male NSU
+   - Female NSU
+   - Male SDB
+   - Female SDB
+   - PT
+   - BLT
+   - Drill
+   - Individual Item
+4. Load bundle contents.
+5. Allow each sized item to have its size changed independently.
+6. Allow authorized removal/addition of individual lines before submission where appropriate.
+7. Validate stock availability.
+8. Show review screen.
+9. Confirm issue.
+10. Update inventory.
+11. Update cadet current-property record.
+12. Update still-needed state.
+13. Append issue history.
+14. Generate signed domain event.
+15. Queue event for shared synchronization/audit.
+16. Update all connected devices.
+
+Items without sizes should not require a size selector.
+
+Issuing a bundle should never assume every item shares the same size.
+
+---
+
+11. RETURN WORKFLOW
+
+Return workflow should:
+
+1. select/search cadet
+2. show only equipment currently issued to that cadet
+3. allow selecting one or multiple items
+4. identify quantity
+5. record appropriate return information
+6. confirm return
+7. increase inventory
+8. remove/update current issued-property record
+9. append history
+10. generate signed return event
+11. synchronize to other clients
+
+Return history must remain visible permanently.
+
+---
+
+12. CORRECTIONS
+
+Important historical records must not be silently edited.
+
+Example:
+
+Original:
+
+Black Trousers
+34R
+
+Correction:
+
+34R → 32R
+
+The original event remains.
+
+A new correction event records:
+
+- what was wrong
+- corrected value
+- reason
+- person authorizing correction
+- timestamp
+- reference to original event
+
+Current application state should show 32R.
+
+Audit history should show both records.
+
+Potential event:
+
+RECORD_CORRECTED
+
+---
+
+13. PHYSICAL COUNTING
+
+A.R.G.U.S. should support rapid physical inventory counts.
+
+Required features:
+
+- search inventory
+- count by 1
+- count by 5
+- count by 10
+- custom increment
+- item-specific preferred increment
+- undo previous counting action
+- drafts
+- review
+- discrepancy display
+- submission
+- reconciliation
+- multi-user counting
+
+Count sessions should eventually support multiple users counting different inventory categories simultaneously.
+
+Possible lifecycle:
+
+DRAFT
+ACTIVE
+SUBMITTED
+NEEDS_APPROVAL
+RECONCILED
+CANCELLED
+
+Count changes should be synchronized between authorized devices where connectivity is available.
+
+---
+
+14. SUPPLY EVENTS AND SMART CALENDAR
+
+The calendar is not simply an event list.
+
+It is a Supply Readiness and Preparation system.
+
+All major event dates are manually configured because dates change from year to year.
+
+Initial event templates:
+
+- New Cadet Orientation / NCO
+- BLT / Basic Leadership Training
+- AMI / Area Manager Inspection
+- Military Ball
+- End-of-Year Count
+
+Each event should support:
+
+- manually entered date/time
+- countdown
+- readiness status
+- preparation tasks
+- task deadlines relative to event date
+- alerts
+- completion tracking
+- associated cadets
+- associated bundles
+- associated inventory readiness
+
+---
+
+15. NEW CADET ORIENTATION
+
+Purpose:
+
+Issue approximately 70 incoming NS1 cadets, although the number varies.
+
+Primary Supply tasks:
+
+- verify incoming NS1 roster
+- verify inventory availability
+- prepare PT gear
+- prepare NSU gear
+- issue PT Bundle
+- issue gender-appropriate NSU Bundle
+- verify sizes
+- identify shortages
+- track cadets still needing items
+- reconcile inventory after mass issue
+- ensure cadet records are complete
+
+A.R.G.U.S. should calculate readiness including:
+
+- incoming cadets
+- fully prepared
+- partially prepared
+- missing items
+- low-stock conflicts
+- completed issues
+
+---
+
+16. BLT
+
+Basic Leadership Training preparation includes issuing participating cadets the BLT bundle.
+
+A.R.G.U.S. should support:
+
+- BLT attendee roster
+- BLT bundle readiness
+- required sizes
+- projected stock requirement
+- shortage warnings
+- issue completion
+- preparation progress
+- post-event reconciliation if required
+
+---
+
+17. AMI
+
+AMI requires major Supply readiness.
+
+Primary requirements:
+
+- complete physical count of Supply
+- current inventory records
+- current cadet property records
+- discrepancy identification
+- unresolved audit/correction review
+- still-needed review
+- final readiness reporting
+
+A.R.G.U.S. should provide an AMI Readiness dashboard.
+
+Potential categories:
+
+Inventory Count
+Cadet Records
+Outstanding Corrections
+Still Needed
+Audit Health
+Synchronization Health
+
+AMI readiness should become progressively more prominent as the manually configured AMI date approaches.
+
+---
+
+18. MILITARY BALL
+
+Military Ball preparation primarily includes SDB issue.
+
+A.R.G.U.S. should:
+
+- identify attending cadets
+- determine appropriate SDB bundle
+- issue Male SDB bundle to applicable male cadets
+- issue Female SDB bundle to applicable female cadets who require it
+- detect missing sizes
+- warn about shortages
+- track issue completion
+
+---
+
+19. END-OF-YEAR COUNT
+
+End-of-Year Count resembles AMI inventory reconciliation.
+
+Requirements include:
+
+- complete physical inventory
+- cadet property reconciliation
+- discrepancy review
+- return-pending cadets
+- missing inventory review
+- audit review
+- school-year rollover readiness
+
+It should eventually integrate with annual rollover.
+
+---
+
+20. SMART ALERT SYSTEM
+
+A.R.G.U.S. should have two alert tiers.
+
+Tier 1 — In-App Alerts
+
+Primary alert system.
+
+Examples:
+
+- cadet incomplete
+- low stock
+- out of stock
+- overdue return
+- count discrepancy
+- reconciliation required
+- event deadline approaching
+- preparation task overdue
+- synchronization issue
+- audit submission failure
+- unresolved offline conflict
+- user authorization/revocation change
+- integrity verification failure
+
+Alerts should be actionable.
+
+Clicking an alert should open the corresponding record or workflow.
+
+Tier 2 — Device Notifications
+
+Device notifications should be reserved for escalating important conditions.
+
+Example rule:
+
+If an important alert is approaching a deadline and an authorized user has not recently opened A.R.G.U.S., generate a device-level notification where platform architecture permits it.
+
+Notification escalation should stop or reduce once:
+
+- user opens A.R.G.U.S.
+- alert is acknowledged
+- underlying condition is resolved
+
+Do not create notification spam.
+
+Push capability requiring external infrastructure must be documented honestly.
+
+---
+
+21. MULTI-DEVICE REAL-TIME OPERATION
+
+Up to approximately 12 authorized users may use A.R.G.U.S.
+
+Connected devices should see important changes as close to real time as practical.
+
+Example:
+
+Officer A issues PT shorts.
+
+Officer B should see:
+
+- inventory decrease
+- cadet record update
+- activity update
+- readiness changes
+
+without manually refreshing.
+
+---
+
+22. OFFLINE-FIRST OPERATION
+
+A.R.G.U.S. must continue to provide useful operational capability when internet connectivity is lost.
+
+Each device should maintain a durable local replica/cache.
+
+Offline operations create signed events and store them in a durable outbox.
+
+Conceptual flow:
+
+User action
+→ local validation
+→ local state update
+→ signed event
+→ durable outbox
+→ offline pending status
+
+When connectivity returns:
+
+outbox
+→ synchronization
+→ validation
+→ remote/shared event publication
+→ reconciliation
+→ confirmation
+
+The app must visibly distinguish:
+
+LOCAL
+QUEUED
+SYNCING
+SYNCHRONIZED
+CONFLICT
+FAILED
+
+---
+
+23. OFFLINE CONFLICT RESOLUTION
+
+A.R.G.U.S. must never silently hide conflicts.
+
+Example:
+
+Only 1 Medium SDB jacket remains.
+
+Device A offline:
+issues final jacket to Cadet A.
+
+Device B offline:
+also issues final jacket to Cadet B.
+
+Upon synchronization:
+
+A.R.G.U.S. identifies a conflict.
+
+It must create a reconciliation workflow showing:
+
+- competing events
+- time recorded
+- actors
+- affected inventory
+- resulting impossible state
+
+An authorized user resolves the conflict.
+
+Resolution generates another signed event.
+
+The system must never silently discard one transaction.
+
+---
+
+24. EVENT-SOURCED SHARED STATE
+
+A.R.G.U.S. should increasingly represent important mutations as signed domain events.
+
+Examples:
+
+INVENTORY_ITEM_CREATED
+INVENTORY_ITEM_UPDATED
+INVENTORY_COUNT_SUBMITTED
+COUNT_RECONCILED
+ITEM_ISSUED
+ITEM_RETURNED
+BUNDLE_UPDATED
+CADET_CREATED
+CADET_UPDATED
+RECORD_CORRECTED
+CALENDAR_EVENT_CREATED
+CALENDAR_EVENT_UPDATED
+TASK_COMPLETED
+AUTHORITY_GRANTED
+AUTHORITY_REVOKED
+ROLE_CHANGED
+CONFLICT_DETECTED
+CONFLICT_RESOLVED
+ANNUAL_ROLLOVER_COMPLETED
+
+Application state can be calculated/projected from authorized ordered events plus local snapshots.
+
+---
+
+25. BSV ROLE
+
+The long-term goal is for BSV to become foundational to:
+
+- identity
+- authorization credentials
+- signed events
+- audit integrity
+- event verification
+- synchronization/discovery where feasible
+- shared state architecture where feasible
+- authority delegation
+
+However:
+
+BSV must not be treated as a magic database.
+
+Stage 2 must prove the required architecture experimentally.
+
+The product goal is:
+
+NO conventional centralized A.R.G.U.S. application database/backend if a reliable BSV-native architecture can satisfy operational requirements.
+
+The implementation must remain technically honest about BSV overlays, indexers, wallet services, broadcasters, or other infrastructure required to make the distributed architecture work.
+
+---
+
+26. BSV PRIVACY BOUNDARY
+
+Never place identifiable cadet records directly on a public blockchain.
+
+Do NOT place:
+
+- cadet name
+- gender
+- school information
+- issue history
+- personal notes
+- student ID
+- contact information
+
+directly in public BSV transaction payloads.
+
+BSV commitments should instead contain appropriate combinations of:
+
+- opaque record IDs
+- event ID
+- event type
+- event version
+- state/event hash
+- timestamp
+- previous-event reference
+- public signing identity
+- signature/reference
+- synchronization metadata
+
+Private operational payloads must use an appropriately protected off-chain/encrypted synchronization mechanism.
+
+Hashing is not equivalent to encryption.
+
+---
+
+27. LOCAL STORAGE
+
+The existing localStorage prototype is temporary.
+
+Production/offline architecture should use a durable browser database such as IndexedDB or another appropriately supported client-side storage technology.
+
+The storage layer should be abstracted.
+
+Potential interfaces:
+
+LocalRepository
+EventStore
+Outbox
+ProjectionStore
+IdentityStore
+
+Private signing keys must not simply be stored as ordinary application records.
+
+---
+
+28. BSV PROVIDER ARCHITECTURE
+
+Maintain an adapter architecture.
+
+Conceptually:
+
+BlockchainProvider
+
+Implementations:
+
+MockBlockchainProvider
+BsvTestnetProvider
+FutureBsvMainnetProvider
+
+Mainnet remains unavailable until a separate production-security milestone.
+
+No application component should directly build Bitcoin transactions.
+
+---
+
+29. TEST ENVIRONMENTS
+
+Required environments:
+
+MOCK
+
+- default CI environment
+- no network transaction
+- simulated confirmations
+- deterministic testing
+
+TESTNET
+
+- test credentials only
+- test data only
+- test transactions only
+- no production funds
+
+MAINNET
+
+- disabled
+- no automatic activation
+- future separate review
+
+---
+
+30. TESTNET VISUAL SAFETY
+
+Any TESTNET build must visibly show:
+
+BSV TESTNET
+
+Development Environment
+
+No Production Transactions
+
+Mock mode must show:
+
+MOCK BLOCKCHAIN
+
+Development Environment
+
+No Production Transactions
+
+---
+
+31. MAINNET GATE
+
+Production/mainnet activation must eventually require:
+
+- successful Stage 2 testnet proof
+- security review
+- privacy review
+- key-management design
+- recovery strategy
+- authorization review
+- synchronization reliability testing
+- backup testing
+- incident-response plan
+- explicit master authorization
+
+Switching a random frontend environment variable must never be sufficient to activate production spending.
+
+---
+
+32. REAL-TIME SYNCHRONIZATION TARGET
+
+Connected clients should ideally synchronize within seconds.
+
+Architecture should include:
+
+- peer/event discovery
+- event validation
+- duplicate prevention
+- ordering
+- replay protection
+- state versioning
+- retry/backoff
+- reconnect
+- event acknowledgements where appropriate
+- corruption recovery
+- conflict detection
+
+---
+
+33. IDEMPOTENCY
+
+Every important event must have a globally unique event ID.
+
+Processing the same event twice must not duplicate the resulting inventory mutation.
+
+Example:
+
+ITEM_ISSUED event ABC processed once:
+Inventory 10 → 9.
+
+Receiving event ABC again:
+Inventory remains 9.
+
+---
+
+34. CRYPTOGRAPHIC EVENT CHAIN
+
+Where practical, important events may reference previous accepted state/event hashes.
+
+This can create a tamper-evident chain.
+
+Do not assume one global previous hash works safely under concurrent offline operation.
+
+Stage 2 must investigate an appropriate causal/versioning structure, potentially using:
+
+- entity version
+- parent event IDs
+- logical clocks
+- vector/causal metadata
+- conflict markers
+
+Do not implement simplistic chaining that breaks whenever two valid devices work concurrently.
+
+---
+
+35. READINESS ENGINE
+
+A.R.G.U.S. should eventually calculate readiness dynamically.
+
+Examples:
+
+Cadet Readiness:
+percentage of cadets completely issued
+
+Inventory Readiness:
+percentage of required inventory sufficiently stocked/reconciled
+
+Event Readiness:
+percentage of event preparation tasks complete
+
+Audit Readiness:
+percentage of important events synchronized/verified
+
+Overall Supply Readiness:
+weighted result across appropriate categories
+
+Weights should eventually be configurable.
+
+---
+
+36. ACTIVITY / AUDIT VIEW
+
+Activity view should display operational history clearly.
+
+Each entry may show:
+
+- action
+- actor
+- timestamp
+- affected record
+- sync status
+- correction relationship
+- audit hash
+- network
+- transaction ID where appropriate
+- verification state
+
+Do not expose secret keys.
+
+Users should not need blockchain expertise to understand this screen.
+
+Prefer:
+
+VERIFIED
+
+rather than raw cryptographic jargon as the primary status.
+
+Technical details can be expandable.
+
+---
+
+37. UX PRINCIPLES
+
+A.R.G.U.S. should be:
+
+- extremely intuitive
+- mobile-first
+- touch-friendly
+- visually dynamic
+- fast
+- difficult to accidentally misuse
+- transparent when synchronization is pending
+- transparent when conflicts occur
+- clear about whether data is local or synchronized
+- usable by supply staff without technical blockchain knowledge
+
+Blockchain should operate largely behind the scenes.
+
+Users should think in terms of:
+
+Issue
+Return
+Count
+Correct
+Approve
+Sync
+Verify
+
+rather than raw Bitcoin transactions.
+
+---
+
+38. DEVELOPMENT PRIORITIES
+
+Recommended development order:
+
+Stage 1
+Completed foundation:
+
+- local domain layer
+- mock blockchain
+- typed audit events
+- hashing
+- basic audit UI
+- mainnet lockout
+
+Stage 2
+BSV-native architecture proof:
+
+- cryptographic identities
+- master authority
+- signed authorization credentials
+- IndexedDB/local event store
+- durable offline outbox
+- event versioning
+- multi-client synchronization experiment
+- BSV testnet provider
+- testnet audit round trip
+- offline/reconnect simulation
+- conflict detection
+
+Stage 3
+Core Supply product:
+
+- complete cadet record model
+- editable bundle manager
+- gender-aware bundles
+- complete issue workflow
+- complete return workflow
+- correction workflow
+- multi-user count sessions
+
+Stage 4
+Dashboard:
+
+- animated readiness tree
+- dynamic navigation nodes
+- real readiness calculations
+- quick actions
+- alerts
+
+Stage 5
+Smart Supply Calendar:
+
+- event templates
+- NCO
+- BLT
+- AMI
+- Military Ball
+- End-of-Year Count
+- countdowns
+- preparation tasks
+- readiness calculations
+
+Stage 6
+Production hardening:
+
+- real authorization enforcement
+- key recovery
+- role management
+- production synchronization
+- backups
+- monitoring
+- privacy review
+- security review
+
+Stage 7
+Separate mainnet consideration.
+
+---
+
+39. PRIMARY SUCCESS CRITERION
+
+A.R.G.U.S. succeeds when the unit can realistically say:
+
+«"Almost everything we need to do in Supply is organized and performed through A.R.G.U.S."»
+
+It should become the single operational picture of:
+
+WHO needs equipment
+
+WHAT inventory exists
+
+WHAT has been issued
+
+WHAT has been returned
+
+WHAT still needs attention
+
+WHAT event is approaching
+
+WHAT Supply needs to prepare
+
+WHAT changed
+
+WHO authorized the change
+
+WHETHER all devices agree
+
+WHETHER the important record can be independently verified
+
+without requiring Supply personnel to understand the underlying cryptographic infrastructure.
