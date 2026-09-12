@@ -76,11 +76,11 @@ describe('IndexedDbRepository migrations', () => {
     const repository = new IndexedDbRepository('upgrade')
     await repository.initialize()
     const migrated = await repository.snapshot()
-    expect(migrated.inventory).toEqual(legacyState().inventory)
+    expect(migrated.inventory).toEqual([expect.objectContaining({ ...legacyState().inventory[0], category: 'Uncategorized', variant: 'No variant', niin: 'Not assigned', countIncrement: 1, active: true })])
     expect(migrated.events[0]).toMatchObject({ event: { eventId: 'event-1' }, auditStatus: 'PENDING' })
     expect(migrated.outbox).toEqual(legacyState().outbox)
     expect(migrated.conflicts).toEqual(legacyState().conflicts)
-    expect(migrated).toMatchObject({ schemaVersion: REPOSITORY_SCHEMA_VERSION, cadets: [], bundles: [], stillNeeded: [] })
+    expect(migrated).toMatchObject({ schemaVersion: REPOSITORY_SCHEMA_VERSION, cadets: [], bundles: [], stillNeeded: [], transactions: [] })
 
     repository.close()
     const reopened = new IndexedDbRepository('upgrade')
@@ -118,6 +118,15 @@ describe('IndexedDbRepository migrations', () => {
 })
 
 describe('logical repository migration', () => {
+  it('adds Stage 3B transactions and deterministic property provenance without changing Stage 3A.5 data', () => {
+    const source = { ...legacyState(), schemaVersion: 4, cadets: [{ cadetId: 'cadet-1', fullName: 'Fictional Cadet', gender: 'Male', nsLevel: 'NS1', status: 'ACTIVE', sizes: {}, currentProperty: [{ itemId: 'navy-pt-shirt', label: 'Navy PT Shirt', size: 'Medium', quantity: 1, issuedAt: '2026-01-01T00:00:00Z' }], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', version: 1, appliedEventIds: [] }], bundles: [], stillNeeded: [] }
+    const migrated = migrateRepositoryState(source)
+    expect(migrated.transactions).toEqual([])
+    expect(migrated.inventory[0].onHand).toBe(source.inventory[0].onHand)
+    expect(migrated.events).toHaveLength(1); expect(migrated.outbox).toEqual(source.outbox); expect(migrated.conflicts).toEqual(source.conflicts)
+    expect(migrated.cadets[0].currentProperty[0]).toMatchObject({ propertyId: 'legacy:cadet-1:0:property', issueEventId: 'legacy:cadet-1:0:event', issueTransactionId: 'legacy:cadet-1:0:transaction', variant: 'Medium' })
+    expect(source.cadets[0].currentProperty[0]).not.toHaveProperty('propertyId')
+  })
   it('rejects unsupported future state and leaves migration input untouched', () => {
     const future = { ...legacyState(), schemaVersion: REPOSITORY_SCHEMA_VERSION + 1 }
     expect(() => migrateRepositoryState(future)).toThrow(/future.*preserved/i)

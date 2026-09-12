@@ -79,8 +79,12 @@ The normal issue, return, and count-submit controls now use permission-checked s
 
 Stage 3A adds signed, permission-checked cadet records, immutable editable bundle versions, exact idempotent factory presets, and lifecycle-preserving Still Needed requirements to the existing IndexedDB replica. Availability and readiness are derived from live projections; concurrent cadet or bundle edits become explicit reconciliation conflicts. See [the Stage 3A architecture](docs/STAGE_3A_CADETS_AND_BUNDLES.md) and [ADR 004](docs/adr/004-stage-3a-cadets-bundles.md).
 
-## Stage 3B issue and return operations
-
-Stage 3B adds atomic multi-line issue and return transactions, immutable bundle snapshots, independent sizes, partial bundle issue with Still Needed lifecycle integration, current-property references, offline durability, idempotent delivery, and final-unit conflict quarantine. See [the Stage 3B guide](docs/STAGE_3B_ISSUE_RETURN.md) and [ADR 005](docs/adr/005-stage-3b-issue-return.md).
-
 Stage 2.5 also provides an AES-256-GCM private-envelope protocol, mock epoch rotation/key grants, untrusted private-history provider interfaces, redundant-provider recovery tests, and a fail-closed external testnet-wallet boundary. No real BSV transaction or overlay was run, no TXID exists, and mainnet remains impossible. See [Stage 2.5 architecture](docs/STAGE_2_5_ARCHITECTURE.md), [private encryption](docs/PRIVATE_EVENT_ENCRYPTION.md), [private sync](docs/PRIVATE_HISTORY_SYNC.md), [device recovery](docs/DEVICE_RECOVERY.md), [storage migration](docs/STORAGE_MIGRATION.md), and [dependency review](docs/BSV_DEPENDENCY_REVIEW.md).
+
+## Stage 3A.5 consolidation
+
+Operational screens now read one `ArgusAppProjection` backed by `RepositoryState`. Inventory creation and count submission use one authorized signed-event path; cadets, bundles, Still Needed, activity, conflicts, and integrity diagnostics come directly from repository projections. Legacy `AppData` remains migration input only. See [the consolidation guide](docs/STAGE_3A_5_CONSOLIDATION.md) and [ADR 005](docs/adr/005-stage-3a-5-application-consolidation.md).
+
+## Stage 3B issue and return
+
+Stage 3B adds atomic multi-SKU Issue and Return transactions, exact bundle mappings and snapshots, variant-safe property records, partial Issue/Still Needed integration, inactive-cadet returns, offline durability, and inventory-keyed conflict quarantine. See [the Stage 3B guide](docs/STAGE_3B_ISSUE_RETURN.md) and [ADR 006](docs/adr/006-stage-3b-issue-return.md).

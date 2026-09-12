@@ -1,295 +1,69 @@
 import { useEffect, useMemo, useState } from 'react'
-import {
-  Activity, Archive, ArrowRight, Boxes, ChevronDown, ClipboardCheck, Cloud, History,
-  LayoutGrid, Minus, PackagePlus, Plus, RotateCcw, Search, Settings, ShieldCheck,
-  UserRound, Users, Wifi, LogOut, FileUp, CalendarRange, KeyRound, X, Check, Shirt,
-} from 'lucide-react'
-import { loadData, matchesSearch, rollover, statusFor, withAudit } from './domain'
-import { submitEventForAudit } from './audit/service'
-import { MockBlockchainProvider } from './blockchain/MockBlockchainProvider'
-import { MockSigner } from './blockchain/MockSigner'
+import { Activity, ArrowRight, Boxes, CalendarRange, Check, ChevronDown, ClipboardCheck, Cloud, FileUp, History, KeyRound, LayoutGrid, Minus, PackagePlus, Plus, RotateCcw, Search, Settings, ShieldCheck, Shirt, UserRound, Users, Wifi, X } from 'lucide-react'
+import { DistributedAppController, type ArgusAppProjection } from './distributed/appIntegration'
+import type { InventoryProjection } from './distributed/types'
+import { matchesSearch } from './domain'
+import { LocalSettingsStorage, type SettingsStorage, type UserSettings } from './settings'
 import { resolveBlockchainMode } from './blockchain/config'
-import type { AppData, InventoryItem } from './types'
-import { DistributedAppController } from './distributed/appIntegration'
-import type { RepositoryState } from './storage/repository'
 import { SupplyWorkflow } from './components/SupplyWorkflow'
 
-type Tab = 'count' | 'inventory' | 'cadets' | 'activity' | 'more'
-type Panel = 'signin' | 'cadet' | 'issue' | 'return' | 'review' | 'bundles' | 'needed' | 'roster' | 'rollover' | 'import' | 'roles' | null
+export type Tab = 'count'|'inventory'|'cadets'|'activity'|'more'
+type Panel = 'review'|'cadet'|'issue'|'return'|'bundles'|'needed'|'roster'|'import'|'roles'|'rollover'|'diagnostics'|null
+const nav: Array<{id:Tab;label:string;icon:typeof Activity}> = [{id:'count',label:'Count',icon:ClipboardCheck},{id:'inventory',label:'Inventory',icon:Boxes},{id:'cadets',label:'Cadets',icon:Users},{id:'activity',label:'Activity',icon:History},{id:'more',label:'More',icon:LayoutGrid}]
+const pageTitle=(tab:Tab)=>({count:'Physical Count',inventory:'Inventory',cadets:'Cadets',activity:'Activity',more:'Command Center'}[tab])
+const initials=(name:string)=>name.split(/\s+/).map(p=>p[0]).join('').slice(0,2).toUpperCase()
+const eventLabel=(type:string)=>({CADET_CREATED:'Cadet Created',CADET_UPDATED:'Cadet Updated',BUNDLE_UPDATED:'Bundle Updated',STILL_NEEDED_ADDED:'Still Needed Added',INVENTORY_COUNT_SUBMITTED:'Physical Count Submitted',INVENTORY_ITEM_CREATED:'Inventory Item Created',INVENTORY_ITEM_UPDATED:'Inventory Item Updated',ITEM_ISSUED:'Issue',ITEM_RETURNED:'Return'}[type]??type.replaceAll('_',' ').toLowerCase())
+const activityLabel=(projection:ArgusAppProjection,eventId:string,type:string)=>{const transaction=projection.transactions.find(candidate=>candidate.eventId===eventId);if(!transaction)return eventLabel(type);const cadet=projection.cadets.find(candidate=>candidate.cadetId===transaction.cadetId);const quantity=transaction.lines.reduce((sum,line)=>sum+line.quantity,0);return `${transaction.transactionType==='ISSUE'?'Issued':'Returned'} ${quantity} item${quantity===1?'':'s'} ${transaction.transactionType==='ISSUE'?'to':'from'} ${cadet?.fullName??'cadet'}`}
+type Props={controller?:DistributedAppController;settingsStorage?:SettingsStorage}
 
-const navItems: { id: Tab; label: string; icon: typeof Activity }[] = [
-  { id: 'count', label: 'Count', icon: ClipboardCheck },
-  { id: 'inventory', label: 'Inventory', icon: Boxes },
-  { id: 'cadets', label: 'Cadets', icon: Users },
-  { id: 'activity', label: 'Activity', icon: History },
-  { id: 'more', label: 'More', icon: LayoutGrid },
-]
-
-function App() {
-  const blockchainMode = resolveBlockchainMode(import.meta.env.VITE_ARGUS_BLOCKCHAIN_MODE)
-  const [auditRuntime] = useState(() => {
-    if (blockchainMode === 'testnet') return null
-    const signer = new MockSigner()
-    return { signer, provider: new MockBlockchainProvider(signer) }
-  })
-  const [tab, setTab] = useState<Tab>('count')
-  const [data, setData] = useState<AppData>(() => loadData())
-  const [distributed] = useState(() => new DistributedAppController())
-  const [storeStatus, setStoreStatus] = useState({ ready: false, outbox: 0, conflicts: 0, events: 0 })
-  const [supplyState, setSupplyState] = useState<RepositoryState | null>(null)
-  const items = data.inventory
-  const [selectedId, setSelectedId] = useState(items[0].id)
-  const [count, setCount] = useState(data.session.counts[items[0].id] ?? items[0].onHand)
-  const [step, setStep] = useState(items[0].countBy)
-  const [query, setQuery] = useState('')
-  const [showAdd, setShowAdd] = useState(false)
-  const [panel, setPanel] = useState<Panel>(null)
-  const [cadetQuery, setCadetQuery] = useState('')
-  const [notice, setNotice] = useState('')
-  const [countHistory, setCountHistory] = useState<{ itemId: string; itemName: string; from: number; to: number }[]>([])
-  const selected = items.find((item) => item.id === selectedId) ?? items[0]
-  const filtered = useMemo(() => {
-    return items.filter((item) => matchesSearch(query, item.name, item.category, item.size, item.niin))
-  }, [items, query])
-
-  useEffect(() => { let active = true; void distributed.initialize().then(async projected => { if (!active) return; setData(projected); const state = await distributed.technicalState(); setSupplyState(state); setStoreStatus({ ready: true, outbox: state.outbox.length, conflicts: state.conflicts.filter(c => c.status === 'OPEN').length, events: state.events.length }) }).catch(error => { if (active) setNotice(error instanceof Error ? error.message : 'Local repository initialization failed.') }); return () => { active = false } }, [distributed])
-  useEffect(() => {
-    if (!auditRuntime) return
-    const queued = data.audit.find(event => event.audit.status === 'QUEUED_FOR_AUDIT')
-    if (!queued) return
-    let active = true
-    void submitEventForAudit(queued, auditRuntime.provider, auditRuntime.signer).then(audited => {
-      if (active) setData(current => ({ ...current, audit: current.audit.map(event => event.eventId === audited.eventId ? audited : event) }))
-    })
-    return () => { active = false }
-  }, [auditRuntime, data.audit])
-  useEffect(() => {
-    if (!notice) return
-    const timeout = window.setTimeout(() => setNotice(''), 4000)
-    return () => window.clearTimeout(timeout)
-  }, [notice])
-
-  const updateCount = (value: number, remember = true) => {
-    const safeValue = Math.max(0, value)
-    if (safeValue === count) return
-    if (remember) setCountHistory(current => [...current, { itemId: selected.id, itemName: `${selected.name} · ${selected.size}`, from: count, to: safeValue }])
-    setCount(safeValue)
-    setData(current => ({ ...current, session: { ...current.session, status: 'draft', submittedAt: undefined, counts: { ...current.session.counts, [selected.id]: safeValue } } }))
-  }
-
-  const undoCount = () => {
-    const last = countHistory.at(-1)
-    if (!last) return
-    const item = items.find(entry => entry.id === last.itemId)
-    if (!item) return
-    setSelectedId(item.id)
-    setCount(last.from)
-    setStep(item.countBy)
-    setData(current => ({ ...current, session: { ...current.session, counts: { ...current.session.counts, [item.id]: last.from } } }))
-    setCountHistory(current => current.slice(0, -1))
-    setNotice(`Undid ${last.itemName}: ${last.to} → ${last.from}.`)
-  }
-
-  const selectItem = (item: InventoryItem) => {
-    setSelectedId(item.id)
-    setCount(data.session.counts[item.id] ?? item.onHand)
-    setStep(item.countBy)
-    setQuery('')
-  }
-
-  const runAction = (action: (current: AppData) => AppData, success: string) => {
-    try {
-      setData(action(data))
-      setNotice(success)
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'The action could not be completed.')
-    }
-  }
-  const runDistributed = async (action: () => Promise<AppData>, success: string) => { setNotice(success); try { const projected = await action(); setData(current => ({ ...current, inventory: projected.inventory, audit: projected.audit })); const state = await distributed.technicalState(); setStoreStatus({ ready: true, outbox: state.outbox.length, conflicts: state.conflicts.filter(c => c.status === 'OPEN').length, events: state.events.length }) } catch (error) { setNotice(error instanceof Error ? error.message : 'The signed operation could not be completed.') } }
-
-  return (
-    <div className="app-shell">
-      <div className="aether-field" aria-hidden="true"><span /><span /><span /></div>
-      <aside className="sidebar">
-        <Brand />
-        <nav aria-label="Primary navigation">
-          {navItems.map(({ id, label, icon: Icon }) => (
-            <button className={tab === id ? 'nav-item active' : 'nav-item'} key={id} onClick={() => setTab(id)}>
-              <Icon size={19} /> <span>{label}</span>{id === 'count' && <span className="nav-dot" />}
-            </button>
-          ))}
-        </nav>
-        <div className="system-card">
-          <span className="pulse" /><strong>Prototype mode</strong>
-          <p>Local preview only</p>
-        </div>
-        <button className="profile" onClick={() => setPanel('signin')}>
-          <span className="avatar">RW</span><span><strong>Riley West</strong><small>Supply Staff</small></span><ChevronDown size={16} />
-        </button>
-      </aside>
-
-      <main className="main-stage">
-        <div className={`environment-banner ${blockchainMode}`} aria-label="Blockchain development environment">
-          <strong>{blockchainMode === 'mock' ? 'MOCK BLOCKCHAIN' : 'BSV TESTNET'}</strong>
-          <span>Development environment · No production transactions</span>
-        </div>
-        <header className="topbar">
-          <div><p className="eyebrow">BETHEL NJROTC SUPPLY</p><h1>{pageTitle(tab)}</h1></div>
-          <div className="top-actions"><span className="sync"><Wifi size={15} /> {storeStatus.conflicts ? 'CONFLICT · ACTION REQUIRED' : storeStatus.outbox ? `OFFLINE · ${storeStatus.outbox} CHANGES QUEUED` : storeStatus.ready ? 'ONLINE · SYNCHRONIZED' : 'LOCAL STORE · STARTING'}</span><button className="icon-button" aria-label="Settings"><Settings size={20} /></button><span className="top-avatar">RW</span></div>
-        </header>
-
-        {notice && <div className="app-notice" role="status">{notice}</div>}
-        {tab === 'count' && <CountView session={data.session} selected={selected} count={count} setCount={updateCount} step={step} setStep={setStep} query={query} setQuery={setQuery} filtered={filtered} selectItem={selectItem} onReview={() => setPanel('review')} lastAction={countHistory.at(-1)} onUndo={undoCount} />}
-        {tab === 'inventory' && <InventoryView items={filtered} query={query} setQuery={setQuery} onAdd={() => setShowAdd(true)} selectItem={(item) => { selectItem(item); setTab('count') }} />}
-        {tab === 'cadets' && <CadetsView cadets={data.cadets} query={cadetQuery} setQuery={setCadetQuery} onOpen={() => setPanel('cadet')} />}
-        {tab === 'activity' && <ActivityView data={data} distributed={storeStatus} />}
-        {tab === 'more' && <MoreView onOpen={setPanel} />}
-      </main>
-
-      <nav className="mobile-nav" aria-label="Mobile navigation">
-        {navItems.map(({ id, label, icon: Icon }) => <button className={tab === id ? 'active' : ''} key={id} onClick={() => setTab(id)}><Icon size={21} /><span>{label}</span></button>)}
-      </nav>
-
-      {showAdd && <AddItemModal inventory={items} onClose={() => setShowAdd(false)} onSave={(item) => { const created = { ...item, id: crypto.randomUUID(), issued: 0, status: statusFor(item) }; setData(current => withAudit({ ...current, inventory: [...current.inventory, created] }, 'INVENTORY_ITEM_CREATED', `Created ${created.name}`, created.id, { itemId: created.id })); setShowAdd(false); setNotice(`${created.name} was added.`) }} />}
-      {(panel === 'issue' || panel === 'return') && supplyState && <SupplyWorkflow mode={panel === 'issue' ? 'ISSUE' : 'RETURN'} state={supplyState} data={data} controller={distributed} onClose={() => setPanel(null)} onChanged={next => { setSupplyState(next); setStoreStatus({ ready:true, outbox:next.outbox.length, conflicts:next.conflicts.filter(c=>c.status==='OPEN').length, events:next.events.length }); void distributed.project().then(setData) }}/>}
-      {panel && panel !== 'issue' && panel !== 'return' && <DemoPanel data={data} panel={panel} count={count} official={selected.onHand} onClose={() => setPanel(null)} onOpen={setPanel} onSubmitCount={() => { setData(current => withAudit(current, 'INVENTORY_COUNT_SUBMITTED', `Submitted ${data.session.name} as a signed count event`, data.session.id)); void runDistributed(() => distributed.submitCount(selected.id, count, data.session.id), 'Physical count submitted.'); setPanel(null) }} onIssue={() => {}} onReturn={() => {}} onRollover={() => { runAction(current => rollover(current, true), 'Annual rollover completed.'); setPanel(null) }} />}
-    </div>
-  )
+export default function App({controller:supplied,settingsStorage:suppliedSettings}:Props){
+ const [controller]=useState(()=>supplied??new DistributedAppController()),[settingsStorage]=useState(()=>suppliedSettings??new LocalSettingsStorage())
+ const [preferences,setPreferences]=useState<UserSettings>(()=>settingsStorage.load()),[projection,setProjection]=useState<ArgusAppProjection>()
+ const [tab,setTab]=useState<Tab>(preferences.defaultSection),[panel,setPanel]=useState<Panel>(null),[settingsOpen,setSettingsOpen]=useState(false),[addOpen,setAddOpen]=useState(false)
+ const [selectedId,setSelectedId]=useState(''),[selectedCadetId,setSelectedCadetId]=useState(''),[count,setCount]=useState(0),[step,setStep]=useState(1)
+ const [query,setQuery]=useState(''),[cadetQuery,setCadetQuery]=useState(''),[notice,setNotice]=useState(''),[history,setHistory]=useState<Array<{itemId:string;name:string;from:number;to:number}>>([])
+ useEffect(()=>{let active=true;controller.initialize().then(p=>{if(!active)return;setProjection(p);if(p.inventory[0]){setSelectedId(p.inventory[0].entityId);setCount(p.inventory[0].onHand);setStep(p.inventory[0].countIncrement)}}).catch(e=>setNotice(e instanceof Error?e.message:'Local data could not be loaded.'));return()=>{active=false}},[controller])
+ useEffect(()=>{settingsStorage.save(preferences);Object.assign(document.documentElement.dataset,{theme:preferences.theme,density:preferences.density,motion:preferences.motion,textSize:preferences.textSize})},[preferences,settingsStorage])
+ useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),5000);return()=>clearTimeout(timer)},[notice])
+ const selected=projection?.inventory.find(i=>i.entityId===selectedId)??projection?.inventory[0]
+ const filtered=useMemo(()=>projection?.inventory.filter(i=>matchesSearch(query,i.name,i.category,i.variant,i.niin))??[],[projection,query])
+ const choose=(item:InventoryProjection)=>{setSelectedId(item.entityId);setCount(item.onHand);setStep(item.countIncrement);setQuery('')}
+ const updateCount=(next:number)=>{if(!selected)return;const safe=Math.max(0,next);if(safe===count)return;setHistory(h=>[...h,{itemId:selected.entityId,name:`${selected.name} · ${selected.variant}`,from:count,to:safe}]);setCount(safe)}
+ const undo=()=>{const last=history.at(-1);if(!last||!projection)return;const item=projection.inventory.find(i=>i.entityId===last.itemId);if(!item)return;setSelectedId(item.entityId);setCount(last.from);setStep(item.countIncrement);setHistory(h=>h.slice(0,-1));setNotice(`Undid ${last.name}: ${last.to} → ${last.from}.`)}
+ const command=async(operation:()=>Promise<ArgusAppProjection>,success:string)=>{try{setProjection(await operation());setNotice(success)}catch(e){setNotice(e instanceof Error?e.message:'The signed operation could not be completed.')}}
+ if(!projection)return <main className="loading-state" aria-live="polite"><strong>Loading A.R.G.U.S. local data…</strong>{notice&&<p role="alert">{notice}</p>}</main>
+ const cadet=projection.cadets.find(c=>c.cadetId===selectedCadetId)
+ const sync=projection.sync.openConflicts?'CONFLICT · ACTION REQUIRED':projection.sync.outbox?`OFFLINE · ${projection.sync.outbox} CHANGES QUEUED`:'LOCAL · SYNCHRONIZED'
+ return <div className="app-shell"><div className="aether-field" aria-hidden="true"><span/><span/><span/></div>
+  <aside className="sidebar"><Brand/><nav aria-label="Primary navigation">{nav.map(({id,label,icon:Icon})=><button key={id} className={tab===id?'nav-item active':'nav-item'} onClick={()=>setTab(id)}><Icon size={19}/><span>{label}</span>{id==='count'&&<span className="nav-dot"/>}</button>)}</nav><div className="system-card"><span className="pulse"/><strong>Prototype mode</strong><p>Repository-backed · local preview</p></div><button className="profile" onClick={()=>setSettingsOpen(true)}><span className="avatar">SO</span><span><strong>Development User</strong><small>Supply Officer</small></span><ChevronDown size={16}/></button></aside>
+  <main className="main-stage"><div className={`environment-banner ${resolveBlockchainMode(import.meta.env.VITE_ARGUS_BLOCKCHAIN_MODE)}`}><strong>DEVELOPMENT</strong><span>No production transactions</span></div><header className="topbar"><div><p className="eyebrow">BETHEL NJROTC SUPPLY</p><h1>{pageTitle(tab)}</h1></div><div className="top-actions"><span className="sync"><Wifi size={15}/>{sync}</span><button aria-label="Settings" className="icon-button" onClick={()=>setSettingsOpen(true)}><Settings size={20}/></button><span className="top-avatar">SO</span></div></header>
+  {notice&&<div className="app-notice" role="status">{notice}</div>}
+  {tab==='count'&&selected&&<CountView selected={selected} count={count} step={step} query={query} filtered={filtered} last={history.at(-1)} setQuery={setQuery} setStep={setStep} setCount={updateCount} choose={choose} undo={undo} review={()=>setPanel('review')}/>}
+  {tab==='inventory'&&<InventoryView items={filtered} all={projection.inventory} query={query} setQuery={setQuery} onAdd={()=>setAddOpen(true)} choose={i=>{choose(i);setTab('count')}}/>}
+  {tab==='cadets'&&<CadetsView projection={projection} query={cadetQuery} setQuery={setCadetQuery} open={id=>{setSelectedCadetId(id);setPanel('cadet')}}/>}
+  {tab==='activity'&&<ActivityView projection={projection}/>} {tab==='more'&&<CommandCenter open={setPanel} settings={()=>setSettingsOpen(true)}/>}</main>
+  <nav className="mobile-nav" aria-label="Mobile navigation">{nav.map(({id,label,icon:Icon})=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}><Icon size={21}/><span>{label}</span></button>)}</nav>
+  {panel==='review'&&selected&&<Drawer title="Review physical count" icon={<ClipboardCheck/>} close={()=>setPanel(null)}><div className="review-hero"><div><small>OFFICIAL</small><strong>{selected.onHand}</strong></div><ArrowRight/><div><small>PHYSICAL</small><strong>{count}</strong></div></div><div className={count===selected.onHand?'validation':'notice'}><Activity/><div><strong>{count-selected.onHand>0?'+':''}{count-selected.onHand} units</strong><p>{count===selected.onHand?'Inventory matches the official record.':'Discrepancy will be recorded for review.'}</p></div></div><label className="field">OPTIONAL NOTE<textarea placeholder="Add context for this count…"/></label><p className="safe-note"><ShieldCheck size={14}/> A signed event is created only when submitted.</p><button className="primary-button" onClick={()=>{setPanel(null);void command(()=>controller.submitCount(selected.entityId,count,'ui-count-session'),'Physical count submitted.')}}>Submit count <Check/></button></Drawer>}
+  {panel==='cadet'&&cadet&&<CadetDrawer cadet={cadet} needs={projection.stillNeeded.filter(n=>n.cadetId===cadet.cadetId)} close={()=>setPanel(null)} issue={()=>setPanel('issue')} returnItems={()=>setPanel('return')}/>}
+  {(panel==='issue'||panel==='return')&&<SupplyWorkflow mode={panel==='issue'?'ISSUE':'RETURN'} projection={projection} controller={controller} selectedCadetId={selectedCadetId||undefined} onClose={()=>setPanel(null)} onChanged={setProjection}/>}
+  {panel==='bundles'&&<BundlesPanel projection={projection} close={()=>setPanel(null)}/>} {panel==='needed'&&<NeededPanel projection={projection} close={()=>setPanel(null)}/>} {panel&&isComingPanel(panel)&&<ComingPanel panel={panel} projection={projection} close={()=>setPanel(null)}/>}
+  {settingsOpen&&<SettingsPanel value={preferences} report={projection.integrity} change={setPreferences} close={()=>setSettingsOpen(false)}/>} {addOpen&&<AddItem inventory={projection.inventory} close={()=>setAddOpen(false)} save={input=>{setAddOpen(false);void command(()=>controller.createInventoryItem(input),`${input.name} was added.`)}}/>}
+ </div>
 }
 
-function Brand() {
-  return <div className="brand"><img src={`${import.meta.env.BASE_URL}argus-mark.svg`} alt="" /><div><strong>A.R.G.U.S.</strong><span>ASSET READINESS SYSTEM</span></div></div>
-}
+function Brand(){return <div className="brand"><img src={`${import.meta.env.BASE_URL}argus-mark.svg`} alt=""/><div><strong>A.R.G.U.S.</strong><span>ASSET READINESS SYSTEM</span></div></div>}
+function CountView({selected,count,step,query,filtered,last,setQuery,setStep,setCount,choose,undo,review}:{selected:InventoryProjection;count:number;step:number;query:string;filtered:InventoryProjection[];last?:{name:string;from:number;to:number};setQuery:(s:string)=>void;setStep:(n:number)=>void;setCount:(n:number)=>void;choose:(i:InventoryProjection)=>void;undo:()=>void;review:()=>void}){const difference=count-selected.onHand;const custom=()=>{const n=Number.parseInt(prompt('Enter a count increment greater than zero',String(step))??'',10);if(Number.isInteger(n)&&n>0)setStep(n)};return <div className="content count-page"><section className="hero-row"><div><div className="section-kicker"><span/><b>ACTIVE SESSION</b><span/></div><h2>Count with confidence.</h2><p>Every tap stays in this local draft. Official inventory changes only after review.</p></div><div className="session-chip"><span className="pulse"/><div><small>DRAFT</small><strong>Physical inventory</strong></div><ChevronDown size={16}/></div></section><div className="search-wrap"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search item name or CDMIS NIIN…" aria-label="Search inventory"/><kbd>⌘ K</kbd>{query&&<div className="search-results">{filtered.length?filtered.map(i=><button key={i.entityId} onClick={()=>choose(i)}><span><strong>{i.name}</strong><small>{i.category} · {i.niin}</small></span><b>{i.variant}</b></button>):<p>No inventory matches that search.</p>}</div>}</div><div className="count-layout"><section className="count-card marble-card"><div className="item-heading"><div className="item-icon"><Boxes/></div><div><span>{selected.category.toUpperCase()}</span><h3>{selected.name}</h3><p>Size: <strong>{selected.variant}</strong> · {selected.niin}</p></div></div><div className="count-display"><small>YOUR PHYSICAL COUNT</small><strong>{count}</strong><span>UNITS COUNTED</span></div><div className="step-label"><span>COUNT BY</span><div>{[1,5,10].map(n=><button key={n} className={step===n?'active':''} onClick={()=>setStep(n)}>{n}</button>)}<button className={![1,5,10].includes(step)?'active':''} onClick={custom}>{![1,5,10].includes(step)?step:'Custom'}</button></div></div><div className="counter-actions"><button className="stone-button minus" onClick={()=>setCount(count-step)}><Minus/><span>Subtract {step}</span></button><button className="stone-button plus" onClick={()=>setCount(count+step)}><Plus/><span>Add {step}</span></button></div><button className="undo-button" disabled={!last} onClick={undo}><RotateCcw size={16}/>{last?`Undo ${last.name}: ${last.to} → ${last.from}`:'Nothing to undo'}</button></section><aside className="review-card"><div className="card-title"><span><ClipboardCheck/></span><div><small>LIVE COMPARISON</small><h3>Count review</h3></div></div><div className="stat-row"><span>Official on hand<small>Before this count</small></span><strong>{selected.onHand}</strong></div><div className="stat-row"><span>Physical count<small>Local draft</small></span><strong>{count}</strong></div><div className={difference===0?'difference match':'difference warning'}><span>{difference===0?<ShieldCheck/>:<Activity/>}</span><div><small>DIFFERENCE</small><strong>{difference>0?'+':''}{difference} units</strong><p>{difference===0?'Inventory matches the record.':'Administrator review required.'}</p></div></div><div className="contributors"><p><strong>Local counting session</strong><br/>Draft saved in this view</p><Cloud/></div><button className="primary-button" onClick={review}>Review &amp; submit <ArrowRight/></button><p className="safe-note"><ShieldCheck/>Draft only—official inventory is unchanged</p></aside></div></div>}
 
-function pageTitle(tab: Tab) {
-  return { count: 'Physical Count', inventory: 'Inventory', cadets: 'Cadets', activity: 'Activity', more: 'Command Center' }[tab]
-}
-
-function sessionLabel(status: AppData['session']['status']) {
-  return ({ draft: 'Draft', active: 'Active', submitted: 'Submitted', 'needs-approval': 'Needs Approval', reconciled: 'Reconciled', cancelled: 'Cancelled' })[status]
-}
-
-type CountProps = {
-  session: AppData['session'];
-  selected: InventoryItem; count: number; setCount: (value: number) => void; step: number; setStep: (value: number) => void
-  query: string; setQuery: (value: string) => void; filtered: InventoryItem[]; selectItem: (item: InventoryItem) => void
-  onReview: () => void
-  lastAction?: { itemName: string; from: number; to: number }; onUndo: () => void
-}
-
-function CountView({ session, selected, count, setCount, step, setStep, query, setQuery, filtered, selectItem, onReview, lastAction, onUndo }: CountProps) {
-  const difference = count - selected.onHand
-  const chooseCustomStep = () => {
-    const response = window.prompt('Enter a count increment greater than zero', String(step))
-    if (response === null) return
-    const nextStep = Number.parseInt(response, 10)
-    if (Number.isInteger(nextStep) && nextStep > 0) setStep(nextStep)
-  }
-  return <div className="content count-page">
-    <section className="hero-row">
-      <div><div className="section-kicker"><span /><b>ACTIVE SESSION</b><span /></div><h2>Count with confidence.</h2><p>Every tap is saved to this draft. Official inventory changes only after review.</p></div>
-      <div className="session-chip"><span className="pulse" /><div><small>{sessionLabel(session.status).toUpperCase()}</small><strong>{session.name}</strong></div><ChevronDown size={16} /></div>
-    </section>
-
-    <div className="search-wrap">
-      <Search size={20} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search item name or CDMIS NIIN…" aria-label="Search inventory" /><kbd>⌘ K</kbd>
-      {query && <div className="search-results">{filtered.length ? filtered.map((item) => <button key={item.id} onClick={() => selectItem(item)}><span><strong>{item.name}</strong><small>{item.category} · {item.niin}</small></span><b>{item.size}</b></button>) : <p>No inventory matches that search.</p>}</div>}
-    </div>
-
-    <div className="count-layout">
-      <section className="count-card marble-card">
-        <div className="item-heading"><div className="item-icon"><Boxes /></div><div><span>{selected.category.toUpperCase()}</span><h3>{selected.name}</h3><p>Size: <strong>{selected.size}</strong> · {selected.niin}</p></div><button className="text-button">Change item</button></div>
-        <div className="count-display"><small>YOUR PHYSICAL COUNT</small><strong>{count}</strong><span>UNITS COUNTED</span></div>
-        <div className="step-label"><span>COUNT BY</span><div>{[1, 5, 10].map((value) => <button key={value} onClick={() => setStep(value)} className={step === value ? 'active' : ''}>{value}</button>)}<button className={![1,5,10].includes(step) ? 'active' : ''} onClick={chooseCustomStep}>{![1,5,10].includes(step) ? step : 'Custom'}</button></div></div>
-        <div className="counter-actions">
-          <button className="stone-button minus" onClick={() => setCount(Math.max(0, count - step))}><Minus /><span>Subtract {step}</span></button>
-          <button className="stone-button plus" onClick={() => setCount(count + step)}><Plus /><span>Add {step}</span></button>
-        </div>
-        <button className="undo-button" disabled={!lastAction} onClick={onUndo}><RotateCcw size={16} /> {lastAction ? `Undo ${lastAction.itemName}: ${lastAction.to} → ${lastAction.from}` : 'Nothing to undo'}</button>
-      </section>
-
-      <aside className="review-card">
-        <div className="card-title"><span><ClipboardCheck size={18} /></span><div><small>LIVE COMPARISON</small><h3>Count review</h3></div></div>
-        <div className="stat-row"><span>Official on hand<small>Before this count</small></span><strong>{selected.onHand}</strong></div>
-        <div className="stat-row"><span>Physical count<small>Combined session</small></span><strong>{count}</strong></div>
-        <div className={difference === 0 ? 'difference match' : 'difference warning'}><span>{difference === 0 ? <ShieldCheck /> : <Activity />}</span><div><small>DIFFERENCE</small><strong>{difference > 0 ? '+' : ''}{difference} units</strong><p>{difference === 0 ? 'Inventory matches the record.' : 'Administrator review required.'}</p></div></div>
-        <div className="contributors"><div className="contributor-avatars"><span>RW</span><span>KM</span><span>+1</span></div><p><strong>3 staff counting</strong><br/>Updated just now</p><Cloud size={18} /></div>
-        <button className="primary-button" onClick={onReview}>Review & submit <ArrowRight size={18} /></button>
-        <p className="safe-note"><ShieldCheck size={14} /> Draft only—official inventory is unchanged</p>
-      </aside>
-    </div>
-  </div>
-}
-
-function InventoryView({ items, query, setQuery, onAdd, selectItem }: { items: InventoryItem[]; query: string; setQuery: (v: string) => void; onAdd: () => void; selectItem: (i: InventoryItem) => void }) {
-  const totalOnHand = items.reduce((total, item) => total + item.onHand, 0)
-  const totalIssued = items.reduce((total, item) => total + item.issued, 0)
-  const attentionCount = items.filter((item) => item.status !== 'Healthy').length
-  return <div className="content"><section className="page-intro"><div><p className="eyebrow">SERVICEABLE INVENTORY</p><h2>Every asset, accounted for.</h2><p>Search by item, size, category, or CDMIS NIIN.</p></div><button className="gold-button" onClick={onAdd}><PackagePlus size={18} /> Add item</button></section>
-    <div className="summary-grid"><Summary label="On hand" value={String(totalOnHand)} detail={`${items.length} tracked variant${items.length === 1 ? '' : 's'}`} /><Summary label="Issued" value={String(totalIssued)} detail="Across active cadets" /><Summary label="Needs attention" value={String(attentionCount)} detail="Low stock or count due" accent /></div>
-    <div className="table-card"><div className="table-tools"><div className="inline-search"><Search size={18}/><input aria-label="Search inventory table" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search inventory…" /></div><button><Settings size={17}/> Filters</button></div>
-      <div className="inventory-list">{items.map((item) => <button className="inventory-row" key={item.id} onClick={() => selectItem(item)}><span className="category-mark">{item.name.slice(0,2).toUpperCase()}</span><span className="item-name"><strong>{item.name}</strong><small>{item.category} · {item.niin}</small></span><span><small>SIZE</small><b>{item.size}</b></span><span><small>ON HAND</small><b>{item.onHand}</b></span><span><small>ISSUED</small><b>{item.issued}</b></span><em className={item.status === 'Healthy' ? 'ready' : 'attention'}>{item.status}</em><ArrowRight size={18}/></button>)}</div>
-    </div>
-  </div>
-}
-
-function Summary({ label, value, detail, accent = false }: { label: string; value: string; detail: string; accent?: boolean }) {
-  return <div className={accent ? 'summary-card accent' : 'summary-card'}><small>{label.toUpperCase()}</small><strong>{value}</strong><p>{detail}</p></div>
-}
-
-function CadetsView({ cadets, query, setQuery, onOpen }: { cadets: AppData['cadets']; query: string; setQuery: (value: string) => void; onOpen: () => void }) {
-  const visible = cadets.filter(cadet => matchesSearch(query, cadet.name, cadet.name.split(' ').reverse().join(' '), cadet.level, cadet.configuration))
-  return <div className="content"><section className="page-intro"><div><p className="eyebrow">PERSONNEL ACCOUNTABILITY</p><h2>Cadet property records.</h2><p>Fictional records are shown in this front-end preview.</p></div><button className="gold-button"><UserRound size={18}/> Add cadet</button></section><div className="table-card"><div className="table-tools"><div className="inline-search"><Search size={18}/><input aria-label="Search cadets" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search cadet name…" /></div></div><div className="cadet-grid">{visible.map(cadet => <button className="cadet-card" key={cadet.id} onClick={onOpen}><span className="large-avatar">{cadet.initials}</span><span><strong>{cadet.name}</strong><small>{cadet.level} · {cadet.configuration}</small></span><div><b>{cadet.items}</b><small>Issued items</small></div><em className={cadet.status === 'Clear' ? 'ready' : 'attention'}>{cadet.status}</em><ArrowRight size={18}/></button>)}</div></div></div>
-}
-
-function ActivityView({ data, distributed }: { data: AppData; distributed: { ready: boolean; outbox: number; conflicts: number; events: number } }) {
-  return <div className="content"><section className="page-intro"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Nothing changes silently.</h2><p>Private operational details stay local; privacy-safe commitments receive verifiable audit metadata.</p></div></section><section className="distributed-panel" aria-label="A.R.G.U.S. distributed system"><p className="eyebrow">A.R.G.U.S. DISTRIBUTED SYSTEM · DEVELOPMENT</p><div><span><b>IDENTITY</b> Supply Officer — Test Identity</span><span><b>AUTHORITY</b> VERIFIED</span><span><b>LOCAL STORE</b> IndexedDB</span><span><b>PRIVATE SYNC</b> Mock provider</span><span><b>LOCAL EVENTS</b> {distributed.events}</span><span><b>OUTBOX</b> {distributed.outbox}</span><span><b>CONFLICTS</b> {distributed.conflicts}</span><span><b>ENCRYPTION EPOCH</b> Development</span><span><b>BSV NETWORK</b> TESTNET (locked adapter)</span></div><strong>{distributed.conflicts ? 'SYNC CONFLICT · ACTION REQUIRED' : distributed.outbox ? `OFFLINE · ${distributed.outbox} CHANGES QUEUED · BSV AUDIT PENDING` : distributed.ready ? 'ONLINE · SYNCHRONIZED · BSV AUDIT PENDING' : 'LOCAL ONLY · NO SYNC PROVIDER CONNECTED · LOCAL STORE INITIALIZING'}</strong></section><div className="timeline">{data.audit.length ? data.audit.map(event => <div className="event" key={event.eventId}><span className="event-icon"><History/></span><div className="event-details"><strong>{event.summary}</strong><p>{event.type}</p><div className="audit-metadata"><span><b>Local</b> Saved</span><span><b>Private sync</b> {distributed.outbox ? 'Queued' : 'Synchronized'}</span><span><b>BSV audit</b> {event.audit.status}</span><span><b>Target</b> {event.audit.targetNetwork}</span></div></div><span className="event-user" title={event.actorId}>SS</span><time>{new Date(event.timestamp).toLocaleString()}</time></div>) : <div className="empty-state">No activity yet. Completed actions will appear here.</div>}</div></div>
-}
-
-function MoreView({ onOpen }: { onOpen: (panel: Panel) => void }) {
-  const options: { icon: typeof Activity; title: string; desc: string; panel: Panel }[] = [{ icon: PackagePlus, title: 'Issue bundles', desc: 'Build and manage standard uniform sets', panel: 'bundles' },{ icon: Archive, title: 'Still needed', desc: 'Track incomplete cadet issues', panel: 'needed' },{ icon: Users, title: 'Roster administration', desc: 'Import, edit, and prepare annual rollover', panel: 'roster' },{ icon: ShieldCheck, title: 'Roles & access', desc: 'Manage authorized supply staff', panel: 'roles' },{ icon: FileUp, title: 'Import preview', desc: 'Validate a fictional roster before upload', panel: 'import' },{ icon: CalendarRange, title: 'Annual rollover', desc: 'Preview promotions and archived records', panel: 'rollover' }]
-  return <div className="content"><section className="page-intro"><div><p className="eyebrow">ADMINISTRATION</p><h2>Command center.</h2><p>Protected tools for keeping A.R.G.U.S. ready.</p></div></section><div className="command-grid">{options.map(({icon:Icon,title,desc,panel}) => <button key={title} onClick={() => onOpen(panel)}><span><Icon/></span><div><strong>{title}</strong><p>{desc}</p></div><ArrowRight/></button>)}</div></div>
-}
-
-function DemoPanel({ data, panel, count, official, onClose, onOpen, onSubmitCount, onIssue, onReturn, onRollover }: { data: AppData; panel: Exclude<Panel, null>; count: number; official: number; onClose: () => void; onOpen: (panel: Panel) => void; onSubmitCount: () => void; onIssue: () => void; onReturn: () => void; onRollover: () => void }) {
-  const difference = count - official
-  const screens = {
-    signin: { kicker: 'SECURE DEMONSTRATION', title: 'Welcome back', icon: KeyRound },
-    cadet: { kicker: 'PROPERTY RECORD · FICTIONAL', title: 'Alex Morgan', icon: UserRound },
-    issue: { kicker: 'ISSUE TRANSACTION', title: 'Issue selected items', icon: PackagePlus },
-    return: { kicker: 'RETURN TRANSACTION', title: 'Record a return', icon: RotateCcw },
-    review: { kicker: 'SESSION #024', title: 'Review physical count', icon: ClipboardCheck },
-    bundles: { kicker: 'STANDARD CONFIGURATIONS', title: 'Bundle selection', icon: Shirt },
-    needed: { kicker: 'OPEN REQUIREMENTS', title: 'Still Needed', icon: Archive },
-    roster: { kicker: 'ROSTER ADMINISTRATION', title: 'Cadet roster', icon: Users },
-    rollover: { kicker: '2026 → 2027', title: 'Annual rollover preview', icon: CalendarRange },
-    import: { kicker: 'VALIDATION PREVIEW', title: 'Import 24 cadets', icon: FileUp },
-    roles: { kicker: 'AUTHORIZED USERS', title: 'Roles & access', icon: ShieldCheck },
-  }[panel]
-  const Icon = screens.icon
-  return <div className="drawer-backdrop" role="presentation" onMouseDown={onClose}><aside className="demo-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" onMouseDown={event => event.stopPropagation()}>
-    <header><span className="drawer-icon"><Icon /></span><div><p className="eyebrow">{screens.kicker}</p><h2 id="drawer-title">{screens.title}</h2></div><button aria-label="Close panel" onClick={onClose}><X /></button></header>
-    {panel === 'signin' && <><div className="signin-crest"><Brand /><p>Use a fictional prototype identity to continue.</p></div><label className="field">Email<input defaultValue="riley.west@demo.invalid" /></label><label className="field">Password<input type="password" defaultValue="prototype" /></label><button className="primary-button">Sign in to A.R.G.U.S. <ArrowRight size={17}/></button><button className="quiet-action"><LogOut size={15}/> Sign out of preview</button></>}
-    {panel === 'cadet' && <><div className="record-hero"><span className="large-avatar">AM</span><div><strong>Alex Morgan</strong><p>NS1 · Alpha Company · Standard A</p></div><em className="attention">1 still needed</em></div><div className="record-stats"><Summary label="Issued" value="6" detail="Active property"/><Summary label="Due" value="1" detail="Missing size"/></div><PanelRows rows={['Navy PT Shirt · Medium|2 issued Aug 18','Navy PT Shorts · Medium|2 issued Aug 18','White Undershirt · Large|2 issued Aug 18','Black Oxford Shoes · 10 Regular|Still needed']} /><div className="split-actions"><button onClick={() => onOpen('return')}>Return item</button><button className="primary-button" onClick={() => onOpen('issue')}>Issue items</button></div></>}
-    {panel === 'issue' && <><Notice text="Issuing one selected inventory item to Alex Morgan · NS1"/><PanelRows selectable rows={['Navy PT Shirt · Medium|24 available','Navy PT Shorts · Medium|8 available','Black Oxford Shoes · 10 R|6 available']} /><label className="field">Condition<select><option>Serviceable / new</option><option>Serviceable / used</option></select></label><button className="primary-button" onClick={onIssue}>Confirm issue <ArrowRight size={17}/></button></>}
-    {panel === 'return' && <><Notice text="Returning one selected inventory item from Alex Morgan"/><PanelRows selectable rows={['Navy PT Shirt · Medium|Issued Aug 18','Navy PT Shorts · Medium|Issued Aug 18']} /><label className="field">Return condition<select><option>Serviceable</option><option>Laundry / inspection</option><option>Unserviceable</option></select></label><button className="primary-button" onClick={onReturn}>Record return <RotateCcw size={17}/></button></>}
-    {panel === 'review' && <><Notice text="Submitting updates official inventory and creates an audit record"/><div className="review-hero"><div><small>OFFICIAL</small><strong>{official}</strong></div><ArrowRight/><div><small>PHYSICAL</small><strong>{count}</strong></div></div><div className={difference === 0 ? 'difference match' : 'difference warning'}><Activity/><div><small>DISCREPANCY</small><strong>{difference > 0 ? '+' : ''}{difference} units</strong><p>{difference === 0 ? 'No adjustment required.' : 'The adjustment will be recorded.'}</p></div></div><label className="field">Review note<textarea placeholder="Optional context for the audit record" /></label><button className="primary-button" onClick={onSubmitCount}>Submit count <ShieldCheck size={17}/></button></>}
-    {panel === 'bundles' && <><Notice text="Factory presets are versioned definitions; missing item mappings never fabricate stock."/><PanelRows rows={['Male NSU · Version 1 · ACTIVE|8 required items','Female NSU · Version 1 · ACTIVE|5 required items','Male SDB · Version 1 · ACTIVE|2 required · 1 optional','Female SDB · Version 1 · ACTIVE|3 required items','PT · Version 1 · ACTIVE|3 required items','Drill · Version 1 · ACTIVE|2 required items','BLT · Version 1 · ACTIVE|5 required items']} /><button className="primary-button" disabled>Issue from bundle in Stage 3B</button></>}
-    {panel === 'needed' && <><Notice text={`${data.stillNeeded.length} open requirement${data.stillNeeded.length === 1 ? '' : 's'} · availability updates with inventory`}/><div className="needed-list">{data.stillNeeded.map(need => { const cadet = data.cadets.find(entry => entry.id === need.cadetId); const item = data.inventory.find(entry => entry.id === need.itemId); const available = (item?.onHand ?? 0) >= need.quantity; return <div className="needed-row" key={need.id}><div><strong>{cadet?.name ?? 'Unknown cadet'}</strong><small>{item?.name ?? 'Unknown item'} · Size {need.requiredSize}</small></div><b>{need.quantity}</b><time>{new Date(need.firstNeededAt).toLocaleDateString()}</time><em className={available ? 'ready' : 'attention'}>{available ? 'Now available' : 'Awaiting stock'}</em></div> })}</div></>}
-    {panel === 'roster' && <><div className="drawer-toolbar"><button onClick={() => onOpen('import')}><FileUp/> Import roster</button><button onClick={() => onOpen('rollover')}><CalendarRange/> Preview rollover</button></div><PanelRows rows={['Alex Morgan|NS1 · Alpha','Jordan Carter|NS3 · Bravo','Taylor Sample|NS4 · Staff']} /></>}
-    {panel === 'rollover' && <><div className="review-hero"><div><small>PROMOTE</small><strong>2</strong></div><div><small>ARCHIVE</small><strong>1</strong></div><div><small>REVIEW</small><strong>1</strong></div></div><PanelRows rows={['Alex Morgan · NS1 → NS2|Ready','Jordan Carter · NS3 → NS4|Ready','Taylor Sample · NS4|Archive after returns · Review']} /><button className="primary-button" onClick={onRollover}>Complete rollover</button></>}
-    {panel === 'import' && <><Notice text="cadet_roster_demo.csv · No data has been saved"/><div className="validation"><Check/><div><strong>22 rows ready</strong><p>2 rows need review before import</p></div></div><PanelRows rows={['Row 8 · Duplicate student ID|Needs review','Row 19 · Missing company|Needs review']} /><button className="primary-button">Import 22 valid records</button></>}
-    {panel === 'roles' && <><PanelRows rows={['Riley West|Supply Staff · Active','Kendall Moore|Supply Staff · Active','Avery Demo|Supply Officer · Active']} /><div className="role-key"><strong>Role permissions</strong><p><b>Supply Staff</b> can count, issue, and return. <b>Supply Officer</b> can approve adjustments and administer users.</p></div><button className="primary-button">Invite authorized user</button></>}
-  </aside></div>
-}
-
-function Notice({ text }: { text: string }) { return <div className="notice"><ShieldCheck size={17}/><span>{text}</span></div> }
-function PanelRows({ rows, selectable = false }: { rows: string[]; selectable?: boolean }) { return <div className="panel-rows">{rows.map((row, index) => { const [title, detail] = row.split('|'); return <label key={title}>{selectable && <input type="checkbox" defaultChecked={index < 2}/>}<span><strong>{title}</strong><small>{detail}</small></span>{!selectable && <ArrowRight size={16}/>}</label> })}</div> }
-
-function AddItemModal({ inventory, onClose, onSave }: { inventory: InventoryItem[]; onClose: () => void; onSave: (item: Omit<InventoryItem, 'id' | 'issued' | 'status'>) => void }) {
-  const [name, setName] = useState(''); const [category, setCategory] = useState(''); const [size, setSize] = useState(''); const [niin, setNiin] = useState(''); const [qty, setQty] = useState(0); const [useThreshold, setUseThreshold] = useState(false); const [threshold, setThreshold] = useState(0)
-  const duplicates = inventory.filter(item => (name.trim().length >= 3 && matchesSearch(name, item.name)) || (niin.trim() && matchesSearch(niin, item.niin)))
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="modal" onSubmit={(e) => { e.preventDefault(); const resolvedSize = size || 'No size'; onSave({ name, category, sizes: resolvedSize.split(',').map(value => value.trim()).filter(Boolean), size: resolvedSize.split(',')[0].trim(), niin: niin || 'Not assigned', onHand: qty, reorderAt: useThreshold ? threshold : undefined, countBy: 1 }) }} onMouseDown={(e) => e.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">INVENTORY ADMINISTRATION</p><h2>Add a new item</h2></div><button type="button" onClick={onClose}>×</button></div><p>Create the core item now. Warning levels are optional.</p><label>Item name<input required value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Navy PT Shirt" /></label>{duplicates.length > 0 && <div className="duplicate-warning" role="alert"><strong>Possible duplicate</strong><span>{duplicates.map(item => `${item.name} · ${item.size} · ${item.niin}`).join(', ')}</span></div>}<div className="form-grid"><label>Category<input required value={category} onChange={e => setCategory(e.target.value)} placeholder="PT Gear" /></label><label>Size or variant<input value={size} onChange={e => setSize(e.target.value)} placeholder="Medium" /></label><label>CDMIS NIIN<input value={niin} onChange={e => setNiin(e.target.value)} placeholder="Optional" /></label><label>Initial on hand<input type="number" min="0" value={qty} onChange={e => setQty(Number(e.target.value))} /></label></div><label className="threshold-toggle"><input type="checkbox" checked={useThreshold} onChange={e => setUseThreshold(e.target.checked)}/> Enable low-stock warning</label>{useThreshold && <label>Warn when on hand is at or below<input aria-label="Low-stock threshold" type="number" min="0" value={threshold} onChange={e => setThreshold(Number(e.target.value))}/></label>}<div className="modal-actions"><button type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit">Add item <ArrowRight size={17}/></button></div></form></div>
-}
-
-export default App
+function Summary({label,value,detail,accent=false}:{label:string;value:string;detail:string;accent?:boolean}){return <div className={accent?'summary-card accent':'summary-card'}><small>{label.toUpperCase()}</small><strong>{value}</strong><p>{detail}</p></div>}
+function InventoryView({items,all,query,setQuery,onAdd,choose}:{items:InventoryProjection[];all:InventoryProjection[];query:string;setQuery:(s:string)=>void;onAdd:()=>void;choose:(i:InventoryProjection)=>void}){const health=(i:InventoryProjection)=>i.reorderAt!==undefined&&i.onHand<=i.reorderAt?'Low stock':i.active?'Healthy':'Inactive';return <div className="content"><section className="page-intro"><div><p className="eyebrow">SERVICEABLE INVENTORY</p><h2>Every asset, accounted for.</h2><p>Search by item, size, category, or CDMIS NIIN.</p></div><button className="gold-button" onClick={onAdd}><PackagePlus/>Add item</button></section><div className="summary-grid"><Summary label="On hand" value={String(all.reduce((s,i)=>s+i.onHand,0))} detail={`${all.length} tracked variants`}/><Summary label="Issued" value={String(all.reduce((s,i)=>s+i.issued,0))} detail="Across active cadets"/><Summary label="Needs attention" value={String(all.filter(i=>health(i)!=='Healthy').length)} detail="Low stock or inactive" accent/></div><div className="table-card"><div className="table-tools"><div className="inline-search"><Search/><input aria-label="Search inventory table" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search inventory…"/></div><button><Settings/>Filters</button></div><div className="inventory-list">{items.length?items.map(i=><button className="inventory-row" key={i.entityId} onClick={()=>choose(i)}><span className="category-mark">{i.name.slice(0,2).toUpperCase()}</span><span className="item-name"><strong>{i.name}</strong><small>{i.category} · {i.niin}</small></span><span><small>SIZE</small><b>{i.variant}</b></span><span><small>ON HAND</small><b>{i.onHand}</b></span><span><small>ISSUED</small><b>{i.issued}</b></span><em className={health(i)==='Healthy'?'ready':'attention'}>{health(i)}</em><ArrowRight/></button>):<p className="empty-state">No inventory matches that search.</p>}</div></div></div>}
+function CadetsView({projection,query,setQuery,open}:{projection:ArgusAppProjection;query:string;setQuery:(s:string)=>void;open:(id:string)=>void}){const visible=projection.cadets.filter(c=>matchesSearch(query,c.fullName,c.nsLevel,c.gender,c.status));return <div className="content"><section className="page-intro"><div><p className="eyebrow">PERSONNEL ACCOUNTABILITY</p><h2>Cadet property records.</h2><p>Readiness is derived from current property and Still Needed requirements.</p></div><button className="gold-button" disabled title="Coming Later"><UserRound/>Add cadet · Coming Later</button></section><div className="table-card"><div className="table-tools"><div className="inline-search"><Search/><input aria-label="Search cadets" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search cadet name…"/></div></div><div className="cadet-grid">{visible.map(c=><button className="cadet-card" key={c.cadetId} onClick={()=>open(c.cadetId)}><span className="large-avatar">{initials(c.fullName)}</span><span><strong>{c.fullName}</strong><small>{c.nsLevel} · {c.gender} · {c.status}</small></span><div><b>{c.propertyCount}</b><small>Current property</small></div><em className={c.readiness.status==='READY'?'ready':'attention'}>{c.readiness.status} · {c.stillNeededCount} needed</em><ArrowRight/></button>)}</div></div></div>}
+function ActivityView({projection}:{projection:ArgusAppProjection}){return <div className="content"><section className="page-intro"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Nothing changes silently.</h2><p>Operational details remain private; public audit state is reported separately and truthfully.</p></div></section><section className="distributed-panel" aria-label="A.R.G.U.S. distributed system"><strong>DISTRIBUTED SYSTEM · LOCAL DEVELOPMENT</strong><div><span><small>IDENTITY</small>supply-officer-development</span><span><small>AUTHORIZATION</small>SUPPLY OFFICER</span><span><small>LOCAL STORE</small>IndexedDB v4</span><span><small>EVENTS</small>{projection.events.length}</span><span><small>OUTBOX</small>{projection.sync.outbox}</span><span><small>CONFLICTS</small>{projection.sync.openConflicts}</span><span><small>PRIVATE SYNC</small>{projection.sync.outbox?'QUEUED':'LOCAL ONLY'}</span><span><small>AUDIT TARGET</small>TESTNET / MOCK</span></div></section><div className="timeline">{projection.events.length?projection.events.map(r=><div className="event" key={r.event.eventId}><span className="event-icon"><Activity/></span><div><strong>{activityLabel(projection,r.event.eventId,r.event.eventType)}</strong><p>{r.event.eventType} · {r.event.entityId}</p><div className="audit-metadata"><span><b>Actor</b>{r.event.actorPublicIdentity}</span><span><b>Local</b>Persisted</span><span><b>Private sync</b>{r.syncStatus}</span><span><b>BSV audit</b>{r.auditStatus}</span></div></div><span className="event-user">SO</span><time>{new Date(r.event.timestamp).toLocaleString()}</time></div>):<p className="empty-state">No signed operational events yet.</p>}</div></div>}
+function CommandCenter({open,settings}:{open:(p:Panel)=>void;settings:()=>void}){const actions=[['bundles','Issue bundles','Configure exact uniform bundle mappings',Shirt],['needed','Still needed','Track unfulfilled cadet requirements',ClipboardCheck],['roster','Roster administration','Manage cadet lifecycle',Users],['import','Import preview','Review roster imports safely',FileUp],['roles','Roles & access','Authorization and credentials',KeyRound],['rollover','Annual rollover','Preview lifecycle changes',CalendarRange],['diagnostics','Diagnostics','Repository health and migration warnings',ShieldCheck]] as const;return <div className="content"><section className="page-intro"><div><p className="eyebrow">OPERATIONS</p><h2>Command Center</h2><p>Administration, readiness, and system controls in one place.</p></div></section><div className="command-grid">{actions.map(([id,title,detail,Icon])=><button key={id} onClick={()=>open(id)}><span><Icon/></span><div><strong>{title}</strong><p>{detail}</p></div><ArrowRight/></button>)}<button onClick={settings}><span><Settings/></span><div><strong>Settings</strong><p>Appearance, behavior, and diagnostics</p></div><ArrowRight/></button></div></div>}
+function Drawer({title,icon,close,children}:{title:string;icon:React.ReactNode;close:()=>void;children:React.ReactNode}){return <div className="drawer-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)close()}}><aside className="demo-drawer" role="dialog" aria-label={title}><header><span className="drawer-icon">{icon}</span><div><small>A.R.G.U.S. COMMAND PANEL</small><h2>{title}</h2></div><button aria-label="Close panel" onClick={close}><X/></button></header>{children}</aside></div>}
+function CadetDrawer({cadet,needs,close,issue,returnItems}:{cadet:ArgusAppProjection['cadets'][number];needs:ArgusAppProjection['stillNeeded'];close:()=>void;issue:()=>void;returnItems:()=>void}){return <Drawer title={cadet.fullName} icon={<UserRound/>} close={close}><div className="record-hero"><span className="large-avatar">{initials(cadet.fullName)}</span><div><strong>{cadet.nsLevel} · {cadet.gender}</strong><p>{cadet.status} personnel record</p></div><em className={cadet.readiness.status==='READY'?'ready':'attention'}>{cadet.readiness.status}</em></div>{cadet.profileNeedsReview&&<div className="notice" role="alert"><Activity/><span><strong>Profile review required</strong><br/>Migrated profile information could not be fully verified.</span></div>}<div className="record-stats"><Summary label="Property" value={String(cadet.propertyCount)} detail="Items currently held"/><Summary label="Readiness" value={`${cadet.readiness.percent}%`} detail={`${cadet.stillNeededCount} still needed`}/></div><h3>Current Property</h3><div className="panel-rows">{cadet.currentProperty.length?cadet.currentProperty.map(p=><div className="needed-row" key={p.propertyId}><span><strong>{p.label}</strong><small>{p.variant} · quantity {p.quantity}</small></span></div>):<p className="empty-state">No current property.</p>}</div><h3>Still Needed</h3>{needs.length?needs.map(n=><div className="needed-row" key={n.requirementId}><span><strong>{n.displayLabel}</strong><small>{n.size??'No variant'} · {n.status}</small></span><b>{n.quantityNeeded-n.quantityFulfilled}</b></div>):<p>No open requirements.</p>}<div className="split-actions"><button onClick={returnItems}>Return Items</button><button className="primary-button" disabled={cadet.status!=='ACTIVE'} onClick={issue}>Issue Items</button></div></Drawer>}
+function BundlesPanel({projection,close}:{projection:ArgusAppProjection;close:()=>void}){return <Drawer title="Bundle selection" icon={<Shirt/>} close={close}>{projection.bundles.map(b=>{const current=b.versions.find(v=>v.version===b.currentVersion)!;return <details className="panel-rows" key={b.bundleId}><summary><strong>{current.displayName}</strong> · v{b.currentVersion} · {current.active?'ACTIVE':'INACTIVE'}<small>{current.genderApplicability} · {b.mapping.mapped}/{b.mapping.total} mapped</small></summary><div>{current.lines.sort((a,z)=>a.order-z.order).map(l=><p key={l.lineId}><b>{l.displayLabel}</b> · {l.required?'Required':'Optional'} · {l.itemId?'Mapped':'Inventory item not configured'}</p>)}<h4>Version history</h4>{[...b.versions].reverse().map(v=><p key={v.version}>v{v.version}{v.version===b.currentVersion?' · CURRENT':''} · {new Date(v.createdAt).toLocaleDateString()} · {v.actorPublicIdentity}</p>)}</div></details>})}</Drawer>}
+function NeededPanel({projection,close}:{projection:ArgusAppProjection;close:()=>void}){return <Drawer title="Still Needed" icon={<ClipboardCheck/>} close={close}><div className="needed-list">{projection.stillNeeded.map(n=><div className="needed-row" key={n.requirementId}><span><strong>{projection.cadets.find(c=>c.cadetId===n.cadetId)?.fullName??'Missing cadet'}</strong><small>{n.displayLabel} · {n.size??'No size'}<br/>Needed {n.quantityNeeded} · fulfilled {n.quantityFulfilled} · remaining {n.quantityNeeded-n.quantityFulfilled}</small></span><time>{new Date(n.firstNeededAt).toLocaleDateString()}</time><em className={n.availability.available?'ready':'attention'}>{!n.availability.configured?'Inventory item not configured':n.availability.available?`${n.availability.onHand} available`:'Awaiting stock'}</em></div>)}</div></Drawer>}
+function isComingPanel(panel:Panel):panel is 'roster'|'import'|'roles'|'rollover'|'diagnostics'{return panel!==null&&['roster','import','roles','rollover','diagnostics'].includes(panel)}
+function ComingPanel({panel,projection,close}:{panel:Exclude<Panel,null|'review'|'cadet'|'issue'|'return'|'bundles'|'needed'>;projection:ArgusAppProjection;close:()=>void}){const title={roster:'Cadet roster',import:'Import 24 cadets',roles:'Roles & access',rollover:'Annual rollover preview',diagnostics:'Repository diagnostics'}[panel];return <Drawer title={title} icon={<ShieldCheck/>} close={close}>{panel==='diagnostics'?<><div className={projection.integrity.healthy?'validation':'notice'}><ShieldCheck/><div><strong>{projection.integrity.healthy?'Repository healthy':'Attention required'}</strong><p>{projection.integrity.issues.length} issues detected non-destructively.</p></div></div><div className="panel-rows"><p>Orphan references: {projection.integrity.orphanReferences}</p><p>Projection errors: {projection.integrity.projectionErrors}</p><p>Migration warnings: {projection.integrity.migrationWarnings}</p></div></>:<div className="notice"><Activity/><span><strong>Coming Later</strong><br/>This workflow remains visible but disabled until it can use the authoritative repository command model.</span></div>}</Drawer>}
+function SettingsPanel({value,report,change,close}:{value:UserSettings;report:ArgusAppProjection['integrity'];change:(v:UserSettings)=>void;close:()=>void}){const set=<K extends keyof UserSettings>(k:K,v:UserSettings[K])=>change({...value,[k]:v});return <Drawer title="Settings" icon={<Settings/>} close={close}><h3>Appearance</h3><label className="field">THEME<select aria-label="Appearance" value={value.theme} onChange={e=>set('theme',e.target.value as UserSettings['theme'])}><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select></label><label className="field">DENSITY<select aria-label="Density" value={value.density} onChange={e=>set('density',e.target.value as UserSettings['density'])}><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label><label className="field">MOTION<select aria-label="Motion" value={value.motion} onChange={e=>set('motion',e.target.value as UserSettings['motion'])}><option value="full">Full</option><option value="reduced">Reduced</option></select></label><label className="field">TEXT SIZE<select aria-label="Text size" value={value.textSize} onChange={e=>set('textSize',e.target.value as UserSettings['textSize'])}><option value="standard">Standard</option><option value="large">Large</option></select></label><label className="field">DEFAULT SECTION<select aria-label="Default section" value={value.defaultSection} onChange={e=>set('defaultSection',e.target.value as Tab)}>{nav.map(n=><option key={n.id} value={n.id}>{pageTitle(n.id)}</option>)}</select></label><h3>Diagnostics</h3><div className={report.healthy?'validation':'notice'}><ShieldCheck/><div><strong>DATA INTEGRITY · {report.healthy?'Healthy':'Action required'}</strong><p>{report.orphanReferences} orphans · {report.projectionErrors} projection errors · {report.migrationWarnings} migration warnings</p></div></div><p>A.R.G.U.S. version {__APP_VERSION__}</p><button disabled>Replay Tutorial — Coming Later</button></Drawer>}
+function AddItem({inventory,close,save}:{inventory:InventoryProjection[];close:()=>void;save:(v:Omit<InventoryProjection,'entityId'|'version'|'appliedEventIds'|'issued'>)=>void}){const [name,setName]=useState(''),[category,setCategory]=useState(''),[variant,setVariant]=useState('No variant'),[niin,setNiin]=useState('Not assigned'),[onHand,setOnHand]=useState(0),[threshold,setThreshold]=useState(false),[reorderAt,setReorderAt]=useState(0),[countIncrement,setIncrement]=useState(1);const duplicate=inventory.find(i=>matchesSearch(name,i.name)&&name.trim().toLowerCase()===i.name.trim().toLowerCase()||niin!=='Not assigned'&&niin.replace(/\W/g,'').toLowerCase()===i.niin.replace(/\W/g,'').toLowerCase());return <div className="modal-backdrop"><form className="modal" aria-label="Add inventory item" onSubmit={e=>{e.preventDefault();save({name:name.trim(),category:category.trim(),variant:variant.trim(),niin:niin.trim(),onHand,reorderAt:threshold?reorderAt:undefined,countIncrement,active:true})}}><div className="modal-heading"><div><p className="eyebrow">INVENTORY CONTROL</p><h2>Add a new item</h2></div><button type="button" aria-label="Close add item" onClick={close}><X/></button></div><p>Create an authoritative inventory variant with a signed event.</p>{duplicate&&<div className="duplicate-warning" role="alert"><strong>Possible duplicate</strong><span>{duplicate.name} · {duplicate.variant} · {duplicate.niin}</span></div>}<div className="form-grid"><label>Item name<input required value={name} onChange={e=>setName(e.target.value)}/></label><label>Category<input required value={category} onChange={e=>setCategory(e.target.value)}/></label><label>Size or variant<input value={variant} onChange={e=>setVariant(e.target.value)}/></label><label>CDMIS NIIN<input value={niin} onChange={e=>setNiin(e.target.value)}/></label><label>Initial on hand<input type="number" min="0" value={onHand} onChange={e=>setOnHand(Number(e.target.value))}/></label><label>Count increment<input type="number" min="1" value={countIncrement} onChange={e=>setIncrement(Math.max(1,Number(e.target.value)))}/></label><label className="threshold-toggle"><input type="checkbox" aria-label="Enable low-stock warning" checked={threshold} onChange={e=>setThreshold(e.target.checked)}/>Enable low-stock warning</label>{threshold&&<label>Low-stock threshold<input aria-label="Low-stock threshold" type="number" min="0" value={reorderAt} onChange={e=>setReorderAt(Number(e.target.value))}/></label>}</div><div className="modal-actions"><button type="button" onClick={close}>Cancel</button><button className="primary-button" type="submit">Add item</button></div></form></div>}

@@ -1,192 +1,23 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
 import App from './App'
+import { DistributedAppController } from './distributed/appIntegration'
+import { MemoryRepository } from './storage/repository'
+import { DEFAULT_SETTINGS, LocalSettingsStorage, SETTINGS_KEY } from './settings'
 
-describe('A.R.G.U.S. count workflow', () => {
-  it('increments and clearly undoes the most recent counting action', () => {
-    render(<App />)
-    expect(document.querySelector('.count-display strong')).toHaveTextContent('18')
-    fireEvent.click(screen.getByRole('button', { name: /add 1/i }))
-    expect(document.querySelector('.count-display strong')).toHaveTextContent('19')
-    fireEvent.click(screen.getByRole('button', { name: /undo navy pt shirt.*19.*18/i }))
-    expect(document.querySelector('.count-display strong')).toHaveTextContent('18')
-    expect(screen.getByRole('status')).toHaveTextContent('Undid Navy PT Shirt · Medium: 19 → 18.')
-  })
+const storage = () => { const values=new Map<string,string>(); return { getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>void values.set(key,value), values } }
+async function setup(){const controller=new DistributedAppController(new MemoryRepository());await controller.initialize(storage());return controller}
 
-  it('searches by a normalized CDMIS number', () => {
-    render(<App />)
-    fireEvent.change(screen.getByLabelText('Search inventory'), { target: { value: '8415 EX 2041' } })
-    expect(screen.getByRole('button', { name: /khaki nsu shirt/i })).toBeInTheDocument()
-  })
-
-  it('changes the increment and prevents a negative count', () => {
-    render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: '10' }))
-    fireEvent.click(screen.getByRole('button', { name: /subtract 10/i }))
-    fireEvent.click(screen.getByRole('button', { name: /subtract 10/i }))
-    expect(document.querySelector('.count-display strong')).toHaveTextContent('0')
-  })
-
-  it('accepts a valid custom count increment', () => {
-    vi.spyOn(window, 'prompt').mockReturnValue('7')
-    render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
-    fireEvent.click(screen.getByRole('button', { name: /add 7/i }))
-    expect(document.querySelector('.count-display strong')).toHaveTextContent('25')
-    vi.restoreAllMocks()
-  })
-
-  it('ignores invalid custom increments', () => {
-    vi.spyOn(window, 'prompt').mockReturnValue('-4')
-    render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
-    expect(screen.getByRole('button', { name: /add 1/i })).toBeInTheDocument()
-    vi.restoreAllMocks()
-  })
-
-  it('shows a clear empty search result', () => {
-    render(<App />)
-    fireEvent.change(screen.getByLabelText('Search inventory'), { target: { value: 'not-a-real-item' } })
-    expect(screen.getByText('No inventory matches that search.')).toBeInTheDocument()
-  })
-
-  it('adds a locally created inventory item', () => {
-    render(<App />)
-    fireEvent.click(screen.getAllByRole('button', { name: /inventory/i })[0])
-    fireEvent.click(screen.getByRole('button', { name: /add item/i }))
-
-    const form = screen.getByRole('heading', { name: 'Add a new item' }).closest('form')
-    expect(form).not.toBeNull()
-    const modal = within(form!)
-    fireEvent.change(modal.getByLabelText('Item name'), { target: { value: 'Test Belt' } })
-    fireEvent.change(modal.getByLabelText('Category'), { target: { value: 'Accessories' } })
-    fireEvent.change(modal.getByLabelText('Size or variant'), { target: { value: 'One size' } })
-    fireEvent.change(modal.getByLabelText('Initial on hand'), { target: { value: '12' } })
-    fireEvent.click(modal.getByRole('button', { name: /add item/i }))
-
-    expect(screen.getByText('Test Belt')).toBeInTheDocument()
-    expect(screen.getByText(/Accessories · Not assigned/)).toBeInTheDocument()
-    expect(screen.getByText('98')).toBeInTheDocument()
-    expect(screen.getByText('6 tracked variants')).toBeInTheDocument()
-  })
-
-  it('warns about duplicate names and supports optional low-stock thresholds', () => {
-    render(<App />)
-    fireEvent.click(screen.getAllByRole('button', { name: /inventory/i })[0])
-    fireEvent.click(screen.getByRole('button', { name: /add item/i }))
-    fireEvent.change(screen.getByLabelText('Item name'), { target: { value: 'Navy PT Shirt' } })
-    expect(screen.getByRole('alert')).toHaveTextContent('Possible duplicate')
-    fireEvent.click(screen.getByLabelText('Enable low-stock warning'))
-    expect(screen.getByLabelText('Low-stock threshold')).toBeInTheDocument()
-  })
-
-  it('keeps inventory and cadet totals consistent', () => {
-    render(<App />)
-    fireEvent.click(screen.getAllByRole('button', { name: /inventory/i })[0])
-    expect(screen.getByText('86')).toBeInTheDocument()
-    expect(screen.getByText('75')).toBeInTheDocument()
-    expect(screen.getByText('5 tracked variants')).toBeInTheDocument()
-
-    fireEvent.click(screen.getAllByRole('button', { name: /cadets/i })[0])
-    const issuedCounts = Array.from(document.querySelectorAll('.cadet-card div > b')).map((node) => Number(node.textContent))
-    expect(issuedCounts.reduce((total, value) => total + value, 0)).toBe(75)
-  })
-
-  it('opens the cadet and audit views from primary navigation', () => {
-    render(<App />)
-    fireEvent.click(screen.getAllByRole('button', { name: /cadets/i })[0])
-    expect(screen.getByRole('heading', { name: 'Cadet property records.' })).toBeInTheDocument()
-    fireEvent.click(screen.getAllByRole('button', { name: /activity/i })[0])
-    expect(screen.getByRole('heading', { name: 'Nothing changes silently.' })).toBeInTheDocument()
-    expect(screen.getByLabelText('A.R.G.U.S. distributed system')).toHaveTextContent('LOCAL ONLY · NO SYNC PROVIDER CONNECTED')
-  })
-
-  it('demonstrates sign-in and count-review panels', () => {
-    render(<App />)
-
-    fireEvent.click(screen.getByRole('button', { name: /riley west/i }))
-    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
-    expect(screen.getByDisplayValue('riley.west@demo.invalid')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
-
-    fireEvent.click(screen.getByRole('button', { name: /review & submit/i }))
-    expect(screen.getByRole('heading', { name: 'Review physical count' })).toBeInTheDocument()
-    expect(screen.getAllByText('-6 units')).toHaveLength(2)
-    fireEvent.mouseDown(document.querySelector('.drawer-backdrop')!)
-    expect(screen.queryByRole('heading', { name: 'Review physical count' })).not.toBeInTheDocument()
-  })
-
-  it('submits a changed count and exposes the audit record', () => {
-    render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: /add 1/i }))
-    fireEvent.click(screen.getByRole('button', { name: /review & submit/i }))
-    fireEvent.click(screen.getByRole('button', { name: 'Submit count' }))
-
-    expect(screen.getByRole('status')).toHaveTextContent('Physical count submitted.')
-    fireEvent.click(screen.getAllByRole('button', { name: /activity/i })[0])
-    expect(screen.getByText(/Submitted Fall inventory/)).toBeInTheDocument()
-    expect(screen.getByText('INVENTORY_COUNT_SUBMITTED')).toBeInTheDocument()
-  })
-
-  it('records an issue through the complete review workflow', async () => {
-    render(<App />)
-    await screen.findByText('ONLINE · SYNCHRONIZED', {}, { timeout: 5000 })
-    fireEvent.click(screen.getAllByRole('button', { name: /cadets/i })[0])
-    fireEvent.click(screen.getByRole('button', { name: /alex morgan/i }))
-    fireEvent.click(screen.getByRole('button', { name: 'Issue items' }))
-    const workflow = await screen.findByRole('dialog', { name: 'Issue property' })
-    fireEvent.click(within(workflow).getByRole('button', { name: /alex morgan.*issued/i }))
-    fireEvent.click(within(workflow).getByRole('button', { name: /individual item/i }))
-    fireEvent.click(within(workflow).getByRole('button', { name: /navy pt shirt/i }))
-    fireEvent.click(within(workflow).getByRole('button', { name: 'Review Issue' }))
-    fireEvent.click(within(workflow).getByRole('button', { name: 'CONFIRM ISSUE' }))
-    expect((await screen.findAllByRole('heading', { name: 'Issue Complete' })).length).toBeGreaterThan(0)
-  })
-
-  it('searches cadets and opens complete issue and return workflows', async () => {
-    render(<App />)
-    await screen.findByText('ONLINE · SYNCHRONIZED', {}, { timeout: 5000 })
-    fireEvent.click(screen.getAllByRole('button', { name: /cadets/i })[0])
-    fireEvent.change(screen.getByLabelText('Search cadets'), { target: { value: 'alex' } })
-    expect(screen.getByRole('button', { name: /alex morgan/i })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /jordan carter/i })).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /alex morgan/i }))
-    expect(screen.getByRole('heading', { name: 'Alex Morgan' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Issue items' }))
-    expect(await screen.findByRole('heading', { name: 'Issue property' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Search active cadets')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Close workflow' }))
-    fireEvent.click(screen.getByRole('button', { name: /alex morgan/i }))
-    fireEvent.click(screen.getByRole('button', { name: 'Return item' }))
-    expect(await screen.findByRole('heading', { name: 'Return property' })).toBeInTheDocument()
-  })
-
-  it.each([
-    ['Issue bundles', 'Bundle selection'],
-    ['Still needed', 'Still Needed'],
-    ['Roles & access', 'Roles & access'],
-    ['Import preview', 'Import 24 cadets'],
-    ['Annual rollover', 'Annual rollover preview'],
-  ])('opens the %s command-center preview', (action, heading) => {
-    render(<App />)
-    fireEvent.click(screen.getAllByRole('button', { name: /more/i })[0])
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${action}(?:$|\\s)`, 'i') }))
-    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument()
-  })
-
-  it('navigates from roster administration to import and rollover previews', () => {
-    render(<App />)
-    fireEvent.click(screen.getAllByRole('button', { name: /more/i })[0])
-    fireEvent.click(screen.getByRole('button', { name: /roster administration/i }))
-    expect(screen.getByRole('heading', { name: 'Cadet roster' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Import roster' }))
-    expect(screen.getByRole('heading', { name: 'Import 24 cadets' })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
-    fireEvent.click(screen.getByRole('button', { name: /roster administration/i }))
-    fireEvent.click(screen.getByRole('button', { name: 'Preview rollover' }))
-    expect(screen.getByRole('heading', { name: 'Annual rollover preview' })).toBeInTheDocument()
-  })
+describe('authoritative application UI',()=>{
+  it('shows hydration before repository projections',()=>{render(<App controller={new DistributedAppController(new MemoryRepository())}/>);expect(screen.getByText('Loading A.R.G.U.S. local data…')).toBeInTheDocument()})
+  it('renders repository cadets and switches selected opaque records',async()=>{const controller=await setup();await controller.createCadet({fullName:'Cadet Alpha',gender:'Female',nsLevel:'NS1',status:'ACTIVE'});await controller.createCadet({fullName:'Cadet Bravo',gender:'Male',nsLevel:'NS2',status:'ACTIVE'});render(<App controller={controller}/>);fireEvent.click((await screen.findAllByRole('button',{name:/cadets/i}))[0]);fireEvent.click(await screen.findByRole('button',{name:/cadet alpha/i}));expect(screen.getByRole('dialog',{name:'Cadet Alpha'})).toHaveTextContent('Cadet Alpha');fireEvent.click(screen.getByLabelText('Close panel'));fireEvent.click(screen.getByRole('button',{name:/cadet bravo/i}));expect(screen.getByRole('dialog',{name:'Cadet Bravo'})).toHaveTextContent('Cadet Bravo')})
+  it('renders bundle projections, mapping status and immutable version history',async()=>{const controller=await setup();const before=(await controller.project()).bundles[0];const current=before.versions[0];await controller.updateBundle(before.bundleId,{displayName:current.displayName,genderApplicability:current.genderApplicability,purpose:current.purpose,lines:current.lines,active:true});render(<App controller={controller}/>);fireEvent.click((await screen.findAllByRole('button',{name:/more/i}))[0]);fireEvent.click(screen.getByRole('button',{name:/Issue bundles/}));fireEvent.click(screen.getByText((_content,node)=>node?.tagName==='SUMMARY'&&Boolean(node.textContent?.includes('Male NSU · v2'))));expect(screen.getByText(/v2 · CURRENT/)).toBeInTheDocument();expect(screen.getAllByText(/^v1/).length).toBeGreaterThan(0);expect(screen.getAllByText(/Inventory item not configured/).length).toBeGreaterThan(0)})
+  it('adds inventory through the signed controller path',async()=>{const controller=await setup();render(<App controller={controller}/>);fireEvent.click((await screen.findAllByRole('button',{name:/^Inventory$/i}))[0]);fireEvent.click(screen.getByRole('button',{name:/add item/i}));const form=screen.getByRole('form',{name:'Add inventory item'});fireEvent.change(within(form).getByLabelText('Item name'),{target:{value:'Test Belt'}});fireEvent.change(within(form).getByLabelText('Category'),{target:{value:'Accessories'}});fireEvent.change(within(form).getByLabelText('Initial on hand'),{target:{value:'12'}});fireEvent.click(within(form).getByRole('button',{name:'Add item'}));expect(await screen.findByText('Test Belt')).toBeInTheDocument();const state=await controller.technicalState();expect(state.inventory.some(item=>item.name==='Test Belt')).toBe(true);expect(state.events.filter(record=>record.event.eventType==='INVENTORY_ITEM_CREATED')).toHaveLength(1)})
+  it('keeps draft counts local, supports undo, and submits exactly one reviewed event',async()=>{const controller=await setup();const initial=(await controller.project()).inventory[0];render(<App controller={controller}/>);await screen.findByText('Count with confidence.');fireEvent.click(screen.getByRole('button',{name:/add 1/i}));expect((await controller.project()).inventory[0].onHand).toBe(initial.onHand);fireEvent.click(screen.getByRole('button',{name:/undo/i}));expect(document.querySelector('.count-display strong')).toHaveTextContent(String(initial.onHand));fireEvent.click(screen.getByRole('button',{name:/add 1/i}));fireEvent.click(screen.getByRole('button',{name:/review & submit/i}));expect(screen.getByRole('dialog',{name:'Review physical count'})).toHaveTextContent('Discrepancy');fireEvent.click(screen.getByRole('button',{name:'Submit count'}));await waitFor(async()=>expect((await controller.project()).inventory[0].onHand).toBe(initial.onHand+1));expect((await controller.technicalState()).events.filter(record=>record.event.eventType==='INVENTORY_COUNT_SUBMITTED')).toHaveLength(1)})
+  it('opens settings, persists personal preferences, and labels later features',async()=>{const controller=await setup(), local=storage(), settings=new LocalSettingsStorage(local);render(<App controller={controller} settingsStorage={settings}/>);fireEvent.click(await screen.findByLabelText('Settings'));fireEvent.change(screen.getByLabelText('Appearance'),{target:{value:'dark'}});fireEvent.change(screen.getByLabelText('Density'),{target:{value:'compact'}});fireEvent.change(screen.getByLabelText('Motion'),{target:{value:'reduced'}});expect(JSON.parse(local.values.get(SETTINGS_KEY)!)).toMatchObject({theme:'dark',density:'compact',motion:'reduced'});expect(screen.getByRole('button',{name:/Replay Tutorial/})).toBeDisabled();expect((await controller.technicalState()).events).toHaveLength(0)})
+  it('restores settings from isolated preference storage',async()=>{const controller=await setup(),local=storage();local.setItem(SETTINGS_KEY,JSON.stringify({...DEFAULT_SETTINGS,textSize:'large'}));render(<App controller={controller} settingsStorage={new LocalSettingsStorage(local)}/>);fireEvent.click(await screen.findByLabelText('Settings'));expect(screen.getByLabelText('Text size')).toHaveValue('large')})
+  it('provides desktop and mobile navigation for every restored section',async()=>{const controller=await setup();render(<App controller={controller}/>);await screen.findByText('Count with confidence.');for(const [name,heading] of [['Inventory','Every asset, accounted for.'],['Cadets','Cadet property records.'],['Activity','Nothing changes silently.'],['More','Command Center']] as const){fireEvent.click(screen.getAllByRole('button',{name:new RegExp(`^${name}$`,'i')})[0]);expect(screen.getAllByRole('heading',{name:heading}).length).toBeGreaterThan(0)}expect(screen.getByRole('navigation',{name:'Mobile navigation'})).toBeInTheDocument()})
+  it('normalizes inventory searches and reports no results',async()=>{const controller=await setup();render(<App controller={controller}/>);await screen.findByText('Count with confidence.');fireEvent.change(screen.getByLabelText('Search inventory'),{target:{value:'8415 EX 2041'}});expect(screen.getByRole('button',{name:/khaki nsu shirt/i})).toBeInTheDocument();fireEvent.change(screen.getByLabelText('Search inventory'),{target:{value:'nothing-here'}});expect(screen.getByText('No inventory matches that search.')).toBeInTheDocument()})
+  it('opens Stage 3B from the selected cadet and issues the selected authoritative variant',async()=>{const controller=await setup();await controller.createCadet({fullName:'Cadet Alpha',gender:'Female',nsLevel:'NS1',status:'ACTIVE'});await controller.createInventoryItem({name:'Navy PT Shirt',category:'PT Gear',variant:'Large',niin:'LARGE-1',onHand:2,reorderAt:0,countIncrement:1,active:true});render(<App controller={controller}/>);fireEvent.click((await screen.findAllByRole('button',{name:/cadets/i}))[0]);fireEvent.click(screen.getByRole('button',{name:/cadet alpha/i}));fireEvent.click(screen.getByRole('button',{name:'Issue Items'}));const workflow=screen.getByRole('dialog',{name:'Issue property'});expect(within(workflow).getByText('Cadet Alpha')).toBeInTheDocument();expect(within(workflow).queryByLabelText('Search cadets')).not.toBeInTheDocument();fireEvent.click(within(workflow).getByRole('button',{name:/Individual Item/}));fireEvent.click(within(workflow).getByRole('button',{name:/Navy PT ShirtLarge/}));fireEvent.click(within(workflow).getByRole('button',{name:'Review Issue'}));fireEvent.click(within(workflow).getByRole('button',{name:'CONFIRM ISSUE'}));await within(workflow).findByText('Synchronized');const state=await controller.technicalState(),large=state.inventory.find(item=>item.name==='Navy PT Shirt'&&item.variant==='Large');expect(large?.onHand).toBe(1);expect(state.cadets.find(cadet=>cadet.fullName==='Cadet Alpha')?.currentProperty[0]).toMatchObject({itemId:large?.entityId,variant:'Large'})})
+  it('returns only selected current property and refreshes the projection',async()=>{const controller=await setup();await controller.createCadet({fullName:'Cadet Return',gender:'Male',nsLevel:'NS2',status:'ACTIVE'});const cadet=(await controller.project()).cadets.find(item=>item.fullName==='Cadet Return')!,item=(await controller.project()).inventory[0];await controller.issueTransaction({transactionId:'preissue',cadetId:cadet.cadetId,lines:[{lineId:'one',itemId:item.entityId,quantity:2}]});expect((await controller.project()).cadets.find(c=>c.cadetId===cadet.cadetId)?.currentProperty).toHaveLength(1);render(<App controller={controller}/>);fireEvent.click((await screen.findAllByRole('button',{name:/cadets/i}))[0]);fireEvent.click(screen.getByRole('button',{name:/cadet return/i}));fireEvent.click(screen.getByRole('button',{name:'Return Items'}));const workflow=screen.getByRole('dialog',{name:'Return property'});expect(within(workflow).getByText(item.name)).toBeInTheDocument();const checkbox=within(workflow).getByRole('checkbox');fireEvent.click(checkbox);fireEvent.click(within(workflow).getByRole('button',{name:'Configure Return'}));fireEvent.change(within(workflow).getByLabelText(`${item.name} quantity`),{target:{value:'1'}});fireEvent.click(within(workflow).getByRole('button',{name:'Review Return'}));expect(within(workflow).getByText(new RegExp(`${item.onHand-2} → ${item.onHand-1}`))).toBeInTheDocument();fireEvent.click(within(workflow).getByRole('button',{name:'CONFIRM RETURN'}));await within(workflow).findByText('Synchronized');expect((await controller.technicalState()).cadets.find(c=>c.cadetId===cadet.cadetId)?.currentProperty[0].quantity).toBe(1)})
 })

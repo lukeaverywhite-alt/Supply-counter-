@@ -1,31 +1,31 @@
 # Stage 3B — Issue and Return
 
-Stage 3B replaces the former demonstration drawers with a mobile-first signed supply workflow. Operators select an active fictional cadet, choose an immutable active bundle version or multiple individual inventory variants, configure each line independently, review live availability, and explicitly confirm. Returns begin with a cadet and expose only that cadet's current property.
+Stage 3B is integrated into the Stage 3A.5 consolidated architecture. `RepositoryState` remains the only operational authority, `DistributedAppController` returns `ArgusAppProjection`, and React never joins supply operations to legacy `AppData` or performs parallel business writes.
 
-## Transaction and event model
+## SKU and bundle rules
 
-A confirmation creates one `ITEM_ISSUED` or `ITEM_RETURNED` signed event whose opaque entity ID is a stable, globally unique transaction ID. It contains all validated lines, inventory IDs and base versions, cadet ID, quantities, optional variants, and original-property references. Bundle issues embed the exact immutable bundle definition and version. A durable `SupplyTransaction` projection makes grouped history survive reload.
+One `InventoryProjection` is one stock-keeping variant. Selectors display real variants and store the selected inventory entity ID; the domain derives canonical name and variant from that ID. Client labels or free-text sizes cannot redirect one SKU while recording another. Inactive SKUs are excluded and rejected.
 
-The single-event strategy makes the repository transaction the atomic boundary: event, outbox, inventory, current property, Still Needed lifecycle, and transaction history are written together or not at all. Stable event and transaction IDs make retry and duplicate delivery idempotent.
+Bundle lines use only explicit `itemId`. Mapping status comes from the Stage 3A.5 `FULLY_MAPPED`, `PARTIALLY_MAPPED`, or `UNMAPPED` projection. Names are never guessed. Current versions resolve by `currentVersion`, not array order, and Issue stores the exact immutable version snapshot.
 
-## Operating rules
+## Atomic transaction model
 
-* Bundle and individual lines retain independent sizes. Profile values are editable defaults only.
-* Required unavailable or unmapped lines may be explicitly carried through a partial issue. Equivalent open `INCOMPLETE_ISSUE` requirements merge by cadet, item, and variant. Optional omitted lines create no requirement.
-* An exact item-and-variant issue reduces an open requirement while retaining its lifecycle. A different variant does not fulfill it.
-* Quantity is a positive whole number capped at 100. Application re-reads repository projections and rejects stale or insufficient stock. Inactive cadets are rejected in the domain.
-* Multi-line and partial returns reference original property IDs and cannot exceed possession. Original issue events remain permanent. Returns never infer or alter Still Needed.
+One confirmation creates one signed `ITEM_ISSUED` or `ITEM_RETURNED` event whose opaque entity ID is the stable transaction ID. Lines include unique IDs, canonical SKU snapshots, quantities, and base versions. Returns reference original property IDs. Event, outbox, inventory, property, Still Needed, and history commit in one repository transaction.
 
-## Offline, conflicts, permissions, and privacy
+Validation completes before mutation. Duplicate SKUs are rejected; separate Issues retain separate property provenance. Quantities are whole numbers from 1 through 100, a guardrail against accidental bulk entry. Duplicate delivery is idempotent, while event or transaction IDs reused for different content are rejected.
 
-Offline confirmations update IndexedDB and its durable outbox immediately. Reload reads the same events, transactions, projections, and queue. Publishing and receiving deduplicate by event ID. A competing final-unit issue is retained as a signed event, creates an open conflict, leaves stock non-negative, and requires `conflicts.resolve`.
+## Partial Issue and Still Needed
 
-Issue requires `inventory.issue`, return requires `inventory.return`, correction requires `inventory.adjust`, and reconciliation requires `conflicts.resolve`. These checks occur at the domain boundary and on received events.
+Required mapped out-of-stock and unmapped lines remain missing during review and become `INCOMPLETE_ISSUE` requirements after explicit partial confirmation. Optional omissions do not. Equivalent requirements append to `relatedTransactionIds`, preserving provenance. Fulfillment requires the same cadet, exact SKU, and variant; partial quantities remain `PARTIALLY_FULFILLED`.
 
-Operational payloads remain private. Public audit commitments continue to contain only protocol metadata, opaque IDs, hashes, timestamps, organization references, and signer public references—never names, gender, NS level, sizes, property, or Still Needed detail. Mainnet remains disabled.
+## Return, offline, and conflicts
 
-## Migration and limitations
+Return shows only selected-cadet property and permits inactive cadets to return gear. Quantities cannot exceed possession. Returns do not create Still Needed.
 
-Repository/IndexedDB version 4 adds the transaction projection and expanded current-property metadata. Stage 3A arrays, events, conflicts, outbox, cadets, bundles and versions, requirements, and inventory are preserved; legacy property rows receive deterministic references. Object-store creation remains existence-guarded.
+Offline confirmations persist signed events, projections, transactions, and outbox entries in IndexedDB. Reopen restores them. A stale final-unit Issue quarantines the entire remote transaction. The inventory-keyed conflict identifies cadet and inventory IDs, includes both signed events, leaves stock nonnegative, and requires `conflicts.resolve`.
 
-The private-sync provider remains a development proof. Inventory variants remain separate inventory entities rather than a central expected-zero variant catalog. A correction editor, persistent drafts, production identity custody, alert delivery, calendar, and dashboard are deferred.
+## Migration, privacy, and limitations
+
+The logical repository schema advances from 4 to 5 and initializes `transactions: []`. Physical IndexedDB remains version 4 because no store or index changed. Existing upgrade guards and source-preserving failures remain. Legacy property references receive unique deterministic `legacy:<cadet>:<index>:...` identifiers.
+
+Full events use private synchronization. Public commitments remain opaque and hash-based, excluding cadet names, gender, NS level, sizes, property, and Still Needed details. Mainnet remains disabled. Production transport/custody, persisted drafts, disposition processing, and correction UI remain later work.

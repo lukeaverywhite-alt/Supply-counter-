@@ -1,6 +1,6 @@
 import type { BundleProjection, CadetProjection, ConflictRecord, InventoryProjection, OutboxRecord, StillNeededProjection, StoredEvent, SupplyTransaction } from '../distributed/types'
 
-export const REPOSITORY_SCHEMA_VERSION = 4
+export const REPOSITORY_SCHEMA_VERSION = 5
 export const INDEXED_DB_VERSION = 4
 export const REPLICA_STORE_NAME = 'replica'
 export const REPLICA_STATE_KEY = 'state'
@@ -17,7 +17,7 @@ export function migrateRepositoryState(value: unknown): RepositoryState {
   const source = value as Partial<RepositoryState>
   if (source.schemaVersion !== undefined && source.schemaVersion > REPOSITORY_SCHEMA_VERSION) throw new Error('Unsupported future repository schema; source was preserved.')
   if (!Array.isArray(source.events) || !Array.isArray(source.outbox) || !Array.isArray(source.inventory) || !Array.isArray(source.conflicts)) throw new Error('Malformed A.R.G.U.S. repository; source was preserved.')
-  return { schemaVersion: REPOSITORY_SCHEMA_VERSION, events: source.events.map(record => ({ ...record, auditStatus: record.auditStatus ?? 'PENDING' })), outbox: source.outbox, inventory: source.inventory, cadets: (source.cadets ?? []).map(c => ({ ...c, currentProperty: c.currentProperty.map((p, index) => ({ ...p, propertyId: 'propertyId' in p ? p.propertyId : `legacy:${c.cadetId}:${index}`, issueEventId: 'issueEventId' in p ? p.issueEventId : 'legacy', issueTransactionId: 'issueTransactionId' in p ? p.issueTransactionId : 'legacy' })) })), bundles: source.bundles ?? [], stillNeeded: source.stillNeeded ?? [], transactions: source.transactions ?? [], conflicts: source.conflicts }
+  return { schemaVersion: REPOSITORY_SCHEMA_VERSION, events: source.events.map(record => ({ ...record, auditStatus: record.auditStatus ?? 'PENDING' })), outbox: source.outbox, inventory: source.inventory.map(item => ({ ...item, category: item.category ?? 'Uncategorized', variant: item.variant ?? 'No variant', niin: item.niin ?? 'Not assigned', issued: item.issued ?? 0, countIncrement: item.countIncrement ?? 1, active: item.active ?? true })), cadets: (source.cadets ?? []).map(cadet => ({ ...cadet, currentProperty: cadet.currentProperty.map((raw, index) => { const property = raw as typeof raw & { size?: string; variant?: string; propertyId?: string; issueEventId?: string; issueTransactionId?: string }, legacyBase = `legacy:${cadet.cadetId}:${index}`; return { ...property, variant: property.variant ?? property.size ?? 'No variant', propertyId: property.propertyId ?? `${legacyBase}:property`, issueEventId: property.issueEventId ?? `${legacyBase}:event`, issueTransactionId: property.issueTransactionId ?? `${legacyBase}:transaction` } }) })), bundles: source.bundles ?? [], stillNeeded: source.stillNeeded ?? [], transactions: source.transactions ?? [], conflicts: source.conflicts }
 }
 export class MemoryRepository implements ArgusRepository {
   private state = empty()
