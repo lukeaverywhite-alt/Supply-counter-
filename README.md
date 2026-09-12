@@ -90,3 +90,9 @@ Operational screens now read one `ArgusAppProjection` backed by `RepositoryState
 ## Stage 3B issue and return
 
 Stage 3B adds atomic multi-SKU Issue and Return transactions, exact bundle mappings and snapshots, variant-safe property records, partial Issue/Still Needed integration, inactive-cadet returns, offline durability, and inventory-keyed conflict quarantine. See [the Stage 3B guide](docs/STAGE_3B_ISSUE_RETURN.md) and [ADR 006](docs/adr/006-stage-3b-issue-return.md).
+
+## Stage 3C.5 stabilization status
+
+Stage 3C.5 adds failure-safe repository transaction serialization, persistent **development-only** epoch enrollment, hardened relay validation/storage behavior, expanded integrity diagnostics, structural CSS validation, and safer service-worker navigation/asset/update handling. The relay remains separately deployed, single-instance development/small-unit infrastructure. Its bearer token is only a relay-access credential and is not an encryption key, signing identity, or production account.
+
+A real HTTP integration test now proves that two independently constructed, explicitly enrolled clients can publish and decrypt multiple ciphertext event types without relay plaintext. This does **not** make the normal React controller production-ready: its remote runtime selection/enrollment UI and distinct-actor credential distribution are not complete. Browser visual/PWA regression coverage and the complete offline final-unit conflict gate also remain open. Accordingly, this repository is **NOT READY FOR STAGE 4A**. See [the Stage 3C.5 report](docs/STAGE_3C_5_STABILIZATION.md) and [ADR 008](docs/adr/008-stage-3c-5-application-stabilization.md).

@@ -14,7 +14,10 @@ export function createRelay({ database = process.env.ARGUS_RELAY_DATABASE ?? 'ar
   const memberships = organizations ?? JSON.parse(process.env.ARGUS_ORGANIZATIONS ?? '{}')
   const origins = allowedOrigins ?? (process.env.ARGUS_ALLOWED_ORIGINS ?? 'http://localhost:5173').split(',').map(x => x.trim())
   if (!Object.keys(memberships).length) throw new Error('ARGUS_ORGANIZATIONS must map opaque organization IDs to access tokens.')
-  const state = existsSync(database) ? JSON.parse(readFileSync(database,'utf8')) : { version:1, nextSequence:1, organizations:{}, events:[] }
+  let state
+  try { state = existsSync(database) ? JSON.parse(readFileSync(database,'utf8')) : { version:1, nextSequence:1, organizations:{}, events:[] } }
+  catch (error) { throw new Error('Relay storage is unreadable; history was preserved and the relay did not start.', { cause: error }) }
+  if (state?.version !== 1 || !Number.isSafeInteger(state.nextSequence) || state.nextSequence < 1 || !state.organizations || !Array.isArray(state.events)) throw new Error('Relay storage schema is invalid; history was preserved and the relay did not start.')
   const persist = () => { const temporary=`${database}.tmp`;writeFileSync(temporary,JSON.stringify(state),{mode:0o600});renameSync(temporary,database) }
   for (const [org, token] of Object.entries(memberships)) { if (!ID.test(org) || typeof token !== 'string' || token.length < 16) throw new Error('Organization IDs must be opaque and tokens must have at least 16 characters.'); state.organizations[org]=digest(token) }
   persist()
@@ -24,12 +27,17 @@ export function createRelay({ database = process.env.ARGUS_RELAY_DATABASE ?? 'ar
     const origin = typeof req.headers.origin === 'string' && origins.includes(req.headers.origin) ? req.headers.origin : undefined
     if (req.headers.origin && !origin) return send(res, 403, { code: 'ORIGIN_DENIED' })
     if (req.method === 'OPTIONS') { res.writeHead(204, { ...(origin ? { 'access-control-allow-origin': origin } : {}), 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'authorization,content-type' }); return res.end() }
-    if (req.url === '/health' && req.method === 'GET') return send(res, 200, { ok: true, provider: 'argus-relay', protocolVersion: 1 }, origin)
-    const ip = req.socket.remoteAddress ?? 'unknown', now = Date.now(), window = windows.get(ip) ?? { start: now, count: 0 }; if (now - window.start > 60_000) { window.start = now; window.count = 0 } windows.set(ip, window); if (++window.count > rateLimit) return send(res, 429, { code: 'RATE_LIMITED' }, origin)
+    if (req.url === '/health' && req.method === 'GET') return send(res, 200, { ok: true, provider: 'argus-relay', protocolVersion: 1, storageAvailable: true, uptimeSeconds: Math.floor(process.uptime()) }, origin)
+    const now = Date.now()
+    if (windows.size > 1000) for (const [key, value] of windows) if (now - value.start > 120_000) windows.delete(key)
+    const ip = req.socket.remoteAddress ?? 'unknown', window = windows.get(ip) ?? { start: now, count: 0 }; if (now - window.start > 60_000) { window.start = now; window.count = 0 } windows.set(ip, window); if (++window.count > rateLimit) return send(res, 429, { code: 'RATE_LIMITED' }, origin)
     const url = new URL(req.url ?? '/', 'http://relay.local')
     if (url.pathname === '/api/v1/events' && req.method === 'POST') {
       if (Number(req.headers['content-length'] ?? 0) > MAX_BYTES) return send(res, 413, { code: 'PAYLOAD_TOO_LARGE' }, origin)
-      let body = ''; for await (const chunk of req) { body += chunk; if (Buffer.byteLength(body) > MAX_BYTES) { req.destroy(); return } }
+      if (!(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return send(res, 415, { code: 'UNSUPPORTED_MEDIA_TYPE' }, origin)
+      let body = ''; let tooLarge = false
+      for await (const chunk of req) { if (tooLarge) continue; body += chunk; if (Buffer.byteLength(body) > MAX_BYTES) { tooLarge = true; body = '' } }
+      if (tooLarge) return send(res, 413, { code: 'PAYLOAD_TOO_LARGE' }, origin)
       let envelope; try { envelope = JSON.parse(body) } catch { return send(res, 400, { code: 'INVALID_ENVELOPE' }, origin) }
       const valid = envelope?.protocol === 'ARGUS_PRIVATE_EVENT' && envelope?.protocolVersion === 1 && envelope?.algorithm === 'AES-256-GCM' && ID.test(envelope.organizationId ?? '') && ID.test(envelope.eventId ?? '') && HASH.test(envelope.ciphertextHash ?? '') && ['epochId','senderPublicIdentity','nonce','ciphertext','signature'].every(k => typeof envelope[k] === 'string' && envelope[k].length > 0)
       if (!valid) return send(res, envelope?.protocolVersion !== 1 ? 422 : 400, { code: envelope?.protocolVersion !== 1 ? 'UNSUPPORTED_PROTOCOL' : 'INVALID_ENVELOPE' }, origin)
@@ -44,7 +52,10 @@ export function createRelay({ database = process.env.ARGUS_RELAY_DATABASE ?? 'ar
     if ((url.pathname === '/api/v1/events' || match) && req.method === 'GET') {
       if (!authorize(req, org)) return send(res, 401, { code: 'UNAUTHORIZED' }, origin)
       if (match) { const row=state.events.find(item=>item.organizationId===org&&item.eventId===decodeURIComponent(match[1])); return row ? send(res, 200, { event: row.envelope }, origin) : send(res, 404, { code: 'NOT_FOUND' }, origin) }
-      const cursor = Math.max(0, Number.parseInt(url.searchParams.get('cursor') ?? '0', 10) || 0), limit = Math.min(200, Math.max(1, Number.parseInt(url.searchParams.get('limit') ?? '100', 10) || 100))
+      const cursorRaw=url.searchParams.get('cursor')??'0',limitRaw=url.searchParams.get('limit')??'100'
+      if (!/^\d+$/.test(cursorRaw)||!/^\d+$/.test(limitRaw)) return send(res,400,{code:'INVALID_PAGINATION'},origin)
+      const cursor=Number(cursorRaw),limit=Number(limitRaw)
+      if (!Number.isSafeInteger(cursor)||!Number.isSafeInteger(limit)||limit<1||limit>200) return send(res,400,{code:'INVALID_PAGINATION'},origin)
       const rows=state.events.filter(row=>row.organizationId===org&&row.sequence>cursor).sort((a,b)=>a.sequence-b.sequence).slice(0,limit+1),page=rows.slice(0,limit),nextCursor=page.at(-1)?.sequence??cursor
       return send(res, 200, { events: page.map(row => row.envelope), nextCursor: String(nextCursor), hasMore: rows.length > limit }, origin)
     }
