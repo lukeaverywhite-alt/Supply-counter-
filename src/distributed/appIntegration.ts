@@ -49,6 +49,8 @@ export class DistributedAppController {
   setOnline(value: boolean) { if (this.replica) this.replica.online = value }
   async issue(itemId: string, quantity: number) { await this.ready().issue(itemId, quantity); return this.project() }
   async returnItem(itemId: string, quantity: number) { await this.ready().returnItem(itemId, quantity); return this.project() }
+  async issueTransaction(input: Parameters<ArgusReplica['issueTransaction']>[0], options?: Parameters<ArgusReplica['issueTransaction']>[1]) { const event = await this.ready().issueTransaction(input, options); return { event, state: await this.technicalState() } }
+  async returnTransaction(input: Parameters<ArgusReplica['returnTransaction']>[0], options?: Parameters<ArgusReplica['returnTransaction']>[1]) { const event = await this.ready().returnTransaction(input, options); return { event, state: await this.technicalState() } }
   async submitCount(itemId: string, quantity: number, sessionId: string) { await this.ready().submitCount(itemId, quantity, sessionId); return this.project() }
   async sync() { await this.ready().sync(); return this.project() }
   private ready() { if (!this.replica) throw new Error('Distributed application repository is not initialized.'); return this.replica }

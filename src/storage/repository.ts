@@ -1,23 +1,23 @@
-import type { BundleProjection, CadetProjection, ConflictRecord, InventoryProjection, OutboxRecord, StillNeededProjection, StoredEvent } from '../distributed/types'
+import type { BundleProjection, CadetProjection, ConflictRecord, InventoryProjection, OutboxRecord, StillNeededProjection, StoredEvent, SupplyTransaction } from '../distributed/types'
 
-export const REPOSITORY_SCHEMA_VERSION = 3
-export const INDEXED_DB_VERSION = 3
+export const REPOSITORY_SCHEMA_VERSION = 4
+export const INDEXED_DB_VERSION = 4
 export const REPLICA_STORE_NAME = 'replica'
 export const REPLICA_STATE_KEY = 'state'
-export type RepositoryState = { schemaVersion: number; events: StoredEvent[]; outbox: OutboxRecord[]; inventory: InventoryProjection[]; cadets: CadetProjection[]; bundles: BundleProjection[]; stillNeeded: StillNeededProjection[]; conflicts: ConflictRecord[] }
+export type RepositoryState = { schemaVersion: number; events: StoredEvent[]; outbox: OutboxRecord[]; inventory: InventoryProjection[]; cadets: CadetProjection[]; bundles: BundleProjection[]; stillNeeded: StillNeededProjection[]; transactions: SupplyTransaction[]; conflicts: ConflictRecord[] }
 export interface ArgusRepository {
   initialize(): Promise<void>
   snapshot(): Promise<RepositoryState>
   transaction(change: (draft: RepositoryState) => void): Promise<void>
 }
 
-const empty = (): RepositoryState => ({ schemaVersion: REPOSITORY_SCHEMA_VERSION, events: [], outbox: [], inventory: [], cadets: [], bundles: [], stillNeeded: [], conflicts: [] })
+const empty = (): RepositoryState => ({ schemaVersion: REPOSITORY_SCHEMA_VERSION, events: [], outbox: [], inventory: [], cadets: [], bundles: [], stillNeeded: [], transactions: [], conflicts: [] })
 export function migrateRepositoryState(value: unknown): RepositoryState {
   if (!value || typeof value !== 'object') throw new Error('Unreadable A.R.G.U.S. repository; source was preserved.')
   const source = value as Partial<RepositoryState>
   if (source.schemaVersion !== undefined && source.schemaVersion > REPOSITORY_SCHEMA_VERSION) throw new Error('Unsupported future repository schema; source was preserved.')
   if (!Array.isArray(source.events) || !Array.isArray(source.outbox) || !Array.isArray(source.inventory) || !Array.isArray(source.conflicts)) throw new Error('Malformed A.R.G.U.S. repository; source was preserved.')
-  return { schemaVersion: REPOSITORY_SCHEMA_VERSION, events: source.events.map(record => ({ ...record, auditStatus: record.auditStatus ?? 'PENDING' })), outbox: source.outbox, inventory: source.inventory, cadets: source.cadets ?? [], bundles: source.bundles ?? [], stillNeeded: source.stillNeeded ?? [], conflicts: source.conflicts }
+  return { schemaVersion: REPOSITORY_SCHEMA_VERSION, events: source.events.map(record => ({ ...record, auditStatus: record.auditStatus ?? 'PENDING' })), outbox: source.outbox, inventory: source.inventory, cadets: (source.cadets ?? []).map(c => ({ ...c, currentProperty: c.currentProperty.map((p, index) => ({ ...p, propertyId: 'propertyId' in p ? p.propertyId : `legacy:${c.cadetId}:${index}`, issueEventId: 'issueEventId' in p ? p.issueEventId : 'legacy', issueTransactionId: 'issueTransactionId' in p ? p.issueTransactionId : 'legacy' })) })), bundles: source.bundles ?? [], stillNeeded: source.stillNeeded ?? [], transactions: source.transactions ?? [], conflicts: source.conflicts }
 }
 export class MemoryRepository implements ArgusRepository {
   private state = empty()

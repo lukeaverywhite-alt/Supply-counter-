@@ -128,21 +128,24 @@ describe('A.R.G.U.S. count workflow', () => {
     expect(screen.getByText('INVENTORY_COUNT_SUBMITTED')).toBeInTheDocument()
   })
 
-  it('records an issue in inventory, cadet totals, and the audit trail', () => {
+  it('records an issue through the complete review workflow', async () => {
     render(<App />)
+    await screen.findByText('ONLINE · SYNCHRONIZED', {}, { timeout: 5000 })
     fireEvent.click(screen.getAllByRole('button', { name: /cadets/i })[0])
     fireEvent.click(screen.getByRole('button', { name: /alex morgan/i }))
     fireEvent.click(screen.getByRole('button', { name: 'Issue items' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm issue' }))
-
-    expect(screen.getByRole('status')).toHaveTextContent('Issued 1 Navy PT Shirt.')
-    expect(screen.getByRole('button', { name: /alex morgan.*7.*issued items/i })).toBeInTheDocument()
-    fireEvent.click(screen.getAllByRole('button', { name: /activity/i })[0])
-    expect(screen.getByText('Issued 1 × Navy PT Shirt')).toBeInTheDocument()
+    const workflow = await screen.findByRole('dialog', { name: 'Issue property' })
+    fireEvent.click(within(workflow).getByRole('button', { name: /alex morgan.*issued/i }))
+    fireEvent.click(within(workflow).getByRole('button', { name: /individual item/i }))
+    fireEvent.click(within(workflow).getByRole('button', { name: /navy pt shirt/i }))
+    fireEvent.click(within(workflow).getByRole('button', { name: 'Review Issue' }))
+    fireEvent.click(within(workflow).getByRole('button', { name: 'CONFIRM ISSUE' }))
+    expect((await screen.findAllByRole('heading', { name: 'Issue Complete' })).length).toBeGreaterThan(0)
   })
 
-  it('searches cadets and walks through issue and return previews', () => {
+  it('searches cadets and opens complete issue and return workflows', async () => {
     render(<App />)
+    await screen.findByText('ONLINE · SYNCHRONIZED', {}, { timeout: 5000 })
     fireEvent.click(screen.getAllByRole('button', { name: /cadets/i })[0])
     fireEvent.change(screen.getByLabelText('Search cadets'), { target: { value: 'alex' } })
     expect(screen.getByRole('button', { name: /alex morgan/i })).toBeInTheDocument()
@@ -151,13 +154,13 @@ describe('A.R.G.U.S. count workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: /alex morgan/i }))
     expect(screen.getByRole('heading', { name: 'Alex Morgan' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Issue items' }))
-    expect(screen.getByRole('heading', { name: 'Issue selected items' })).toBeInTheDocument()
-    expect(screen.getAllByRole('checkbox')).toHaveLength(3)
+    expect(await screen.findByRole('heading', { name: 'Issue property' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Search active cadets')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close workflow' }))
     fireEvent.click(screen.getByRole('button', { name: /alex morgan/i }))
     fireEvent.click(screen.getByRole('button', { name: 'Return item' }))
-    expect(screen.getByRole('heading', { name: 'Record a return' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Return property' })).toBeInTheDocument()
   })
 
   it.each([

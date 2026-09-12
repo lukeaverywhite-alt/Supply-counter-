@@ -62,7 +62,10 @@ describe('Stage 2 event store, outbox and replicas', () => {
     const one = new MemoryRepository(), two = new MemoryRepository(); await one.initialize(); await two.initialize()
     await one.transaction(state => state.conflicts.push({ id: 'c', entityId: 'i', eventIds: [], status: 'OPEN', reason: 'test' }))
     expect((await one.snapshot()).conflicts).toHaveLength(1); expect((await two.snapshot()).conflicts).toHaveLength(0)
+    const available = globalThis.indexedDB
+    Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: undefined })
     await expect(new IndexedDbRepository('test-unavailable').initialize()).rejects.toThrow(/unavailable/)
+    Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: available })
   })
   it('canonicalizes equivalent values and distinguishes meaningful changes', () => {
     expect(canonicalize({ b: 2, a: { d: 4, c: 3 } })).toBe(canonicalize({ a: { c: 3, d: 4 }, b: 2 }))

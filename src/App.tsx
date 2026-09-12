@@ -11,6 +11,8 @@ import { MockSigner } from './blockchain/MockSigner'
 import { resolveBlockchainMode } from './blockchain/config'
 import type { AppData, InventoryItem } from './types'
 import { DistributedAppController } from './distributed/appIntegration'
+import type { RepositoryState } from './storage/repository'
+import { SupplyWorkflow } from './components/SupplyWorkflow'
 
 type Tab = 'count' | 'inventory' | 'cadets' | 'activity' | 'more'
 type Panel = 'signin' | 'cadet' | 'issue' | 'return' | 'review' | 'bundles' | 'needed' | 'roster' | 'rollover' | 'import' | 'roles' | null
@@ -34,6 +36,7 @@ function App() {
   const [data, setData] = useState<AppData>(() => loadData())
   const [distributed] = useState(() => new DistributedAppController())
   const [storeStatus, setStoreStatus] = useState({ ready: false, outbox: 0, conflicts: 0, events: 0 })
+  const [supplyState, setSupplyState] = useState<RepositoryState | null>(null)
   const items = data.inventory
   const [selectedId, setSelectedId] = useState(items[0].id)
   const [count, setCount] = useState(data.session.counts[items[0].id] ?? items[0].onHand)
@@ -49,7 +52,7 @@ function App() {
     return items.filter((item) => matchesSearch(query, item.name, item.category, item.size, item.niin))
   }, [items, query])
 
-  useEffect(() => { let active = true; void distributed.initialize().then(async projected => { if (!active) return; setData(projected); const state = await distributed.technicalState(); setStoreStatus({ ready: true, outbox: state.outbox.length, conflicts: state.conflicts.filter(c => c.status === 'OPEN').length, events: state.events.length }) }).catch(error => { if (active) setNotice(error instanceof Error ? error.message : 'Local repository initialization failed.') }); return () => { active = false } }, [distributed])
+  useEffect(() => { let active = true; void distributed.initialize().then(async projected => { if (!active) return; setData(projected); const state = await distributed.technicalState(); setSupplyState(state); setStoreStatus({ ready: true, outbox: state.outbox.length, conflicts: state.conflicts.filter(c => c.status === 'OPEN').length, events: state.events.length }) }).catch(error => { if (active) setNotice(error instanceof Error ? error.message : 'Local repository initialization failed.') }); return () => { active = false } }, [distributed])
   useEffect(() => {
     if (!auditRuntime) return
     const queued = data.audit.find(event => event.audit.status === 'QUEUED_FOR_AUDIT')
@@ -148,7 +151,8 @@ function App() {
       </nav>
 
       {showAdd && <AddItemModal inventory={items} onClose={() => setShowAdd(false)} onSave={(item) => { const created = { ...item, id: crypto.randomUUID(), issued: 0, status: statusFor(item) }; setData(current => withAudit({ ...current, inventory: [...current.inventory, created] }, 'INVENTORY_ITEM_CREATED', `Created ${created.name}`, created.id, { itemId: created.id })); setShowAdd(false); setNotice(`${created.name} was added.`) }} />}
-      {panel && <DemoPanel data={data} panel={panel} count={count} official={selected.onHand} onClose={() => setPanel(null)} onOpen={setPanel} onSubmitCount={() => { setData(current => withAudit(current, 'INVENTORY_COUNT_SUBMITTED', `Submitted ${data.session.name} as a signed count event`, data.session.id)); void runDistributed(() => distributed.submitCount(selected.id, count, data.session.id), 'Physical count submitted.'); setPanel(null) }} onIssue={() => { setData(current => withAudit({ ...current, cadets: current.cadets.map(cadet => cadet.id === 'cadet-am' ? { ...cadet, items: cadet.items + 1 } : cadet) }, 'ITEM_ISSUED', `Issued 1 × ${selected.name}`, selected.id)); void runDistributed(() => distributed.issue(selected.id, 1), `Issued 1 ${selected.name}.`); setPanel(null) }} onReturn={() => { setData(current => withAudit({ ...current, cadets: current.cadets.map(cadet => cadet.id === 'cadet-am' ? { ...cadet, items: Math.max(0, cadet.items - 1) } : cadet) }, 'ITEM_RETURNED', `Returned 1 × ${selected.name}`, selected.id)); void runDistributed(() => distributed.returnItem(selected.id, 1), `Returned 1 ${selected.name}.`); setPanel(null) }} onRollover={() => { runAction(current => rollover(current, true), 'Annual rollover completed.'); setPanel(null) }} />}
+      {(panel === 'issue' || panel === 'return') && supplyState && <SupplyWorkflow mode={panel === 'issue' ? 'ISSUE' : 'RETURN'} state={supplyState} data={data} controller={distributed} onClose={() => setPanel(null)} onChanged={next => { setSupplyState(next); setStoreStatus({ ready:true, outbox:next.outbox.length, conflicts:next.conflicts.filter(c=>c.status==='OPEN').length, events:next.events.length }); void distributed.project().then(setData) }}/>}
+      {panel && panel !== 'issue' && panel !== 'return' && <DemoPanel data={data} panel={panel} count={count} official={selected.onHand} onClose={() => setPanel(null)} onOpen={setPanel} onSubmitCount={() => { setData(current => withAudit(current, 'INVENTORY_COUNT_SUBMITTED', `Submitted ${data.session.name} as a signed count event`, data.session.id)); void runDistributed(() => distributed.submitCount(selected.id, count, data.session.id), 'Physical count submitted.'); setPanel(null) }} onIssue={() => {}} onReturn={() => {}} onRollover={() => { runAction(current => rollover(current, true), 'Annual rollover completed.'); setPanel(null) }} />}
     </div>
   )
 }
