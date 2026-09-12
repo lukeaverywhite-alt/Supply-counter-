@@ -31,3 +31,7 @@ Events carry an entity `baseVersion`; there is no global previous-hash chain and
 - **Revoked key:** future events/credentials are rejected. Revocation cannot make already received plaintext or old decryption keys unknowable; future epochs must rotate encryption keys.
 
 No production live subscription, notification service, durable provider, encrypted replication, or automatic failover is claimed.
+
+## Stage 3B.1 user-facing status
+
+The default `MockSyncProvider` is a development transport. Repository persistence and the outbox provide durable local operation, but they do **not** create shared state between physical devices. The UI therefore reports **Local mode**, **Saved locally**, or locally queued changes and never describes the default provider as production synchronized. A real authenticated transport/backend remains a separate milestone.
