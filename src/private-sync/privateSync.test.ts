@@ -3,7 +3,7 @@ import { MockIdentityProvider } from '../identity/identity'
 import { canonicalize } from '../distributed/canonical'
 import type { SignedArgusEvent } from '../distributed/types'
 import { decryptEvent, encryptEvent } from './crypto'
-import { MockEpochKeyDistribution } from './keys'
+import { DevelopmentPersistentEpochKeyDistribution, MockEpochKeyDistribution } from './keys'
 import { MockPrivateHistoryProvider, MultiPrivateHistoryProvider } from './provider'
 import { parseEncryptedEnvelope } from './schema'
 import { PrivateSyncEngine } from './engine'
@@ -34,5 +34,19 @@ describe('Stage 2.5 encrypted private history', () => {
     await publishing
     await repository.transaction(state=>state.outbox.push({eventId:'new-during-sync',attempts:0,status:'QUEUED'}));release();await first
     expect(publishes).toBe(1);expect((await repository.snapshot()).outbox.map(value=>value.eventId)).toEqual(['new-during-sync'])
+  })
+})
+
+describe('development persistent enrollment', () => {
+  it('survives provider reconstruction and explicitly enrolls an independent client', async () => {
+    const values = new Map<string,string>(), storage = { getItem: (key:string) => values.get(key) ?? null, setItem: (key:string,value:string) => { values.set(key,value) } }
+    const a = new DevelopmentPersistentEpochKeyDistribution('org-opaque-test', storage)
+    await expect(a.keyFor('mock:a', 'epoch-001')).rejects.toThrow(/not enrolled/)
+    await a.rotateEpoch(['mock:a', 'mock:b'])
+    const bValues = new Map<string,string>(), bStorage = { getItem: (key:string) => bValues.get(key) ?? null, setItem: (key:string,value:string) => { bValues.set(key,value) } }
+    const b = new DevelopmentPersistentEpochKeyDistribution('org-opaque-test', bStorage)
+    b.importEnrollment(a.exportEnrollment())
+    expect(b.currentEpoch()).toBe('epoch-001')
+    expect((await b.keyFor('mock:b', 'epoch-001')).extractable).toBe(false)
   })
 })

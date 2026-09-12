@@ -26,15 +26,18 @@ export function migrateRepositoryState(value: unknown): RepositoryState {
 }
 export class MemoryRepository implements ArgusRepository {
   private state = empty()
-  private writes: Promise<void> = Promise.resolve()
+  private pending: Promise<void> = Promise.resolve()
   async initialize() {}
   async snapshot() { return structuredClone(this.state) }
-  transaction(change: (draft: RepositoryState) => void) { const operation = this.writes.then(() => { const draft = structuredClone(this.state); change(draft); assertRepositoryInvariants(draft); this.state = draft }); this.writes = operation.catch(() => undefined); return operation }
+  transaction(change: (draft: RepositoryState) => void) { return this.serialize(async () => { const draft = structuredClone(this.state); change(draft); this.state = draft }) }
+  private serialize(work: () => Promise<void>) { const result = this.pending.then(work, work); this.pending = result.catch(() => undefined); return result }
 }
 
 export const INDEXED_DB_NAME = 'argus-stage2'
 export class IndexedDbRepository implements ArgusRepository {
   private db?: IDBDatabase
+  /** Serializes every complete read-modify-write cycle; errors cannot poison the queue. */
+  private pending: Promise<void> = Promise.resolve()
   constructor(private readonly name = INDEXED_DB_NAME) {}
   async initialize() {
     if (this.db) return
@@ -111,5 +114,8 @@ export class IndexedDbRepository implements ArgusRepository {
       tx.onabort = () => reject(callbackError ?? tx.error ?? new Error('Repository transaction was aborted.'))
     })
   }
+  async snapshot() { return structuredClone((await this.read()) ?? empty()) }
+  transaction(change: (draft: RepositoryState) => void) { return this.serialize(async () => { const draft = structuredClone((await this.read()) ?? empty()); change(draft); await this.write(draft) }) }
+  private serialize(work: () => Promise<void>) { const result = this.pending.then(work, work); this.pending = result.catch(() => undefined); return result }
   close() { this.db?.close(); this.db = undefined }
 }
