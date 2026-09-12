@@ -3,7 +3,7 @@ import { MockIdentityProvider } from '../identity/identity'
 import { canonicalize } from '../distributed/canonical'
 import type { SignedArgusEvent } from '../distributed/types'
 import { decryptEvent, encryptEvent } from './crypto'
-import { MockEpochKeyDistribution } from './keys'
+import { DevelopmentPersistentEpochKeyDistribution, MockEpochKeyDistribution } from './keys'
 import { MockPrivateHistoryProvider, MultiPrivateHistoryProvider } from './provider'
 import { parseEncryptedEnvelope } from './schema'
 
@@ -21,4 +21,18 @@ describe('Stage 2.5 encrypted private history', () => {
   it('rotates epochs and denies a revoked identity future keys without claiming old-key erasure', async () => { const { sender, recipient, revoked, keys, event } = await fixture(); const oldEnvelope = await encryptEvent(event, sender, keys); expect(await decryptEvent(oldEnvelope, await revoked.getPublicIdentity(), revoked, keys)).toEqual(event); keys.revoke(await revoked.getPublicIdentity()); await keys.rotateEpoch([await sender.getPublicIdentity(), await recipient.getPublicIdentity()]); const next = await encryptEvent({ ...event, eventId: 'event-test-002' }, sender, keys); await expect(decryptEvent(next, await revoked.getPublicIdentity(), revoked, keys)).rejects.toThrow(/decryption failed/); expect((await decryptEvent(next, await recipient.getPublicIdentity(), recipient, keys)).eventId).toBe('event-test-002') })
   it('replicates to two untrusted providers, deduplicates, and recovers when provider A disappears', async () => { const { sender, recipient, keys, event } = await fixture(); const a = new MockPrivateHistoryProvider('A'), b = new MockPrivateHistoryProvider('B'), multi = new MultiPrivateHistoryProvider([a, b]), envelope = await encryptEvent(event, sender, keys); await multi.publish(envelope); a.unavailable = true; b.duplicateDelivery = true; const page = await multi.getSince(); expect(page.envelopes).toHaveLength(1); expect((await decryptEvent(page.envelopes[0], await recipient.getPublicIdentity(), recipient, keys)).eventId).toBe(event.eventId) })
   it('keeps a valid envelope queued conceptually when every provider is unavailable', async () => { const { sender, keys, event } = await fixture(); const a = new MockPrivateHistoryProvider('A'), b = new MockPrivateHistoryProvider('B'); a.unavailable = b.unavailable = true; await expect(new MultiPrivateHistoryProvider([a, b]).publish(await encryptEvent(event, sender, keys))).rejects.toThrow(/All/) })
+})
+
+describe('development persistent enrollment', () => {
+  it('survives provider reconstruction and explicitly enrolls an independent client', async () => {
+    const values = new Map<string,string>(), storage = { getItem: (key:string) => values.get(key) ?? null, setItem: (key:string,value:string) => { values.set(key,value) } }
+    const a = new DevelopmentPersistentEpochKeyDistribution('org-opaque-test', storage)
+    await expect(a.keyFor('mock:a', 'epoch-001')).rejects.toThrow(/not enrolled/)
+    await a.rotateEpoch(['mock:a', 'mock:b'])
+    const bValues = new Map<string,string>(), bStorage = { getItem: (key:string) => bValues.get(key) ?? null, setItem: (key:string,value:string) => { bValues.set(key,value) } }
+    const b = new DevelopmentPersistentEpochKeyDistribution('org-opaque-test', bStorage)
+    b.importEnrollment(a.exportEnrollment())
+    expect(b.currentEpoch()).toBe('epoch-001')
+    expect((await b.keyFor('mock:b', 'epoch-001')).extractable).toBe(false)
+  })
 })
