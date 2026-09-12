@@ -122,3 +122,16 @@ button:focus-visible,input:focus-visible { outline:2px solid #16899a; outline-of
 .distributed-panel > div { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; margin: .7rem 0; }
 .distributed-panel span { display: grid; gap: .15rem; font-size: .8rem; }
 .distributed-panel > strong { color: #f4c95d; font-size: .82rem; }
+
+/* Personal presentation preferences; operational data never controls these. */
+:root[data-density='compact'] .content { padding-block: 1rem; }
+:root[data-text-size='large'] { font-size: 112.5%; }
+:root[data-theme='light'] { color-scheme: light; }
+:root[data-theme='dark'] { color-scheme: dark; }
+:root[data-motion='reduced'] *,
+:root[data-motion='reduced'] *::before,
+:root[data-motion='reduced'] *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+}
+.loading-state { min-height: 100vh; display: grid; place-content: center; background: #07131f; color: white; }

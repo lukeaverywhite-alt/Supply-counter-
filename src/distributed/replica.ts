@@ -7,15 +7,15 @@ import type { MockSyncProvider } from '../sync/mock'
 import type { BundleVersionProjection, CadetProjection, StillNeededProjection } from './types'
 import { FACTORY_BUNDLES, validateBundle, validateCadet, validateRequirement } from '../stage3/domain'
 
-const permissionFor = (type: SignedArgusEvent['eventType']): ArgusPermission | undefined => ({ ITEM_ISSUED: 'inventory.issue', ITEM_RETURNED: 'inventory.return', INVENTORY_COUNT_SUBMITTED: 'inventory.count', CONFLICT_RESOLVED: 'conflicts.resolve', CADET_CREATED: 'cadets.manage', CADET_UPDATED: 'cadets.manage', BUNDLE_CREATED: 'bundles.manage', BUNDLE_UPDATED: 'bundles.manage', BUNDLE_DEACTIVATED: 'bundles.manage', STILL_NEEDED_ADDED: 'cadets.manage', STILL_NEEDED_UPDATED: 'cadets.manage', STILL_NEEDED_CANCELLED: 'cadets.manage', STILL_NEEDED_FULFILLED: 'cadets.manage' } as Partial<Record<SignedArgusEvent['eventType'], ArgusPermission>>)[type]
+const permissionFor = (type: SignedArgusEvent['eventType']): ArgusPermission | undefined => ({ INVENTORY_ITEM_CREATED: 'inventory.create', INVENTORY_ITEM_UPDATED: 'inventory.adjust', ITEM_ISSUED: 'inventory.issue', ITEM_RETURNED: 'inventory.return', INVENTORY_COUNT_SUBMITTED: 'inventory.count', CONFLICT_RESOLVED: 'conflicts.resolve', CADET_CREATED: 'cadets.manage', CADET_UPDATED: 'cadets.manage', BUNDLE_CREATED: 'bundles.manage', BUNDLE_UPDATED: 'bundles.manage', BUNDLE_DEACTIVATED: 'bundles.manage', STILL_NEEDED_ADDED: 'cadets.manage', STILL_NEEDED_UPDATED: 'cadets.manage', STILL_NEEDED_CANCELLED: 'cadets.manage', STILL_NEEDED_FULFILLED: 'cadets.manage' } as Partial<Record<SignedArgusEvent['eventType'], ArgusPermission>>)[type]
 const unsigned = (event: SignedArgusEvent) => { const rest: Partial<SignedArgusEvent> = { ...event }; delete rest.signature; return canonicalize(rest) }
 
 export class ArgusReplica {
   online = true
   constructor(readonly repository: ArgusRepository, private identity: ArgusIdentityProvider, private authorization: AuthorizationService, private provider: MockSyncProvider, readonly organizationId = 'argus-demo-organization') {}
-  async initialize(items: Array<Omit<InventoryProjection, 'appliedEventIds'>> = []) {
+  async initialize(items: Array<Pick<InventoryProjection, 'entityId' | 'name' | 'onHand' | 'version'> & Partial<Omit<InventoryProjection, 'entityId' | 'name' | 'onHand' | 'version' | 'appliedEventIds'>>> = []) {
     await this.repository.initialize()
-    await this.repository.transaction(s => { if (!s.inventory.length) s.inventory = items.map(item => ({ ...item, appliedEventIds: [] })); for (const version of FACTORY_BUNDLES) if (!s.bundles.some(b => b.bundleId === version.bundleId)) s.bundles.push({ bundleId: version.bundleId, currentVersion: 1, versions: [structuredClone(version)], appliedEventIds: [version.eventId] }) })
+    await this.repository.transaction(s => { if (!s.inventory.length) s.inventory = items.map(item => ({ category: 'Uncategorized', variant: 'No variant', niin: 'Not assigned', issued: 0, countIncrement: 1, active: true, ...item, appliedEventIds: [] })); for (const source of FACTORY_BUNDLES) if (!s.bundles.some(b => b.bundleId === source.bundleId)) { const version = structuredClone(source); version.lines = version.lines.map(line => ({ ...line, itemId: s.inventory.find(item => item.name === line.displayLabel)?.entityId })); s.bundles.push({ bundleId: version.bundleId, currentVersion: 1, versions: [version], appliedEventIds: [version.eventId] }) } })
   }
   private async signed(input: Omit<UnsignedArgusEvent, 'protocol' | 'protocolVersion' | 'organizationId' | 'eventVersion' | 'eventId' | 'actorPublicIdentity' | 'timestamp'> & { eventId?: string; timestamp?: string }) {
     const event = { protocol: 'ARGUS' as const, protocolVersion: 1 as const, organizationId: this.organizationId, eventVersion: 1 as const, eventId: input.eventId ?? crypto.randomUUID(), eventType: input.eventType, entityId: input.entityId, actorPublicIdentity: await this.identity.getPublicIdentity(), timestamp: input.timestamp ?? new Date().toISOString(), ...(input.baseVersion === undefined ? {} : { baseVersion: input.baseVersion }), payload: input.payload }
@@ -39,6 +39,17 @@ export class ArgusReplica {
     if (!item || !Number.isInteger(countedQuantity) || countedQuantity < 0) throw new Error('Invalid physical count.')
     const actor = await this.identity.getPublicIdentity(); this.authorization.require(actor, 'inventory.count', options.timestamp)
     const event = await this.signed({ eventType: 'INVENTORY_COUNT_SUBMITTED', entityId, baseVersion: item.version, payload: { sessionId, expectedQuantity: item.onHand, countedQuantity, discrepancy: countedQuantity - item.onHand }, ...options }); await this.persistLocal(event); if (this.online) await this.sync(); return event
+  }
+  async createInventoryItem(input: Omit<InventoryProjection, 'entityId' | 'version' | 'appliedEventIds' | 'issued'> & { entityId?: string; issued?: number }, options: { eventId?: string; timestamp?: string } = {}) {
+    if (!input.name.trim() || !input.category.trim() || !Number.isInteger(input.onHand) || input.onHand < 0 || !Number.isInteger(input.countIncrement) || input.countIncrement < 1) throw new Error('Inventory item details are invalid.')
+    const actor = await this.identity.getPublicIdentity(); this.authorization.require(actor, 'inventory.create', options.timestamp)
+    const id = input.entityId ?? `item_${crypto.randomUUID()}`; if ((await this.repository.snapshot()).inventory.some(item => item.entityId === id)) throw new Error('Inventory item ID already exists.')
+    const event = await this.signed({ eventType: 'INVENTORY_ITEM_CREATED', entityId: id, payload: { ...input, issued: input.issued ?? 0 }, ...options }); await this.persistLocal(event); if (this.online) await this.sync(); return event
+  }
+  async updateInventoryItem(entityId: string, changes: Partial<Pick<InventoryProjection, 'name'|'category'|'variant'|'niin'|'reorderAt'|'countIncrement'|'active'>>, options: { eventId?: string; timestamp?: string } = {}) {
+    const item = (await this.repository.snapshot()).inventory.find(candidate => candidate.entityId === entityId); if (!item) throw new Error('Inventory item was not found.')
+    const actor = await this.identity.getPublicIdentity(); this.authorization.require(actor, 'inventory.adjust', options.timestamp)
+    const event = await this.signed({ eventType: 'INVENTORY_ITEM_UPDATED', entityId, baseVersion: item.version, payload: changes, ...options }); await this.persistLocal(event); if (this.online) await this.sync(); return event
   }
   async correct(originalEventId: string, entityId: string, field: string, value: unknown, reason: string) {
     const event = await this.signed({ eventType: 'RECORD_CORRECTED', entityId, payload: { originalEventId, field, value, reason } }); await this.persistLocal(event); return event
@@ -69,6 +80,8 @@ export class ArgusReplica {
   private apply(state: RepositoryState, event: SignedArgusEvent) {
     if (state.events.some(e => e.event.eventId === event.eventId)) return
     const permission = permissionFor(event.eventType); if (permission) this.authorization.require(event.actorPublicIdentity, permission, event.timestamp)
+    if (event.eventType === 'INVENTORY_ITEM_CREATED') { const value = event.payload as unknown as Omit<InventoryProjection, 'entityId'|'version'|'appliedEventIds'>; if (state.inventory.some(item => item.entityId === event.entityId)) throw new Error('Inventory item ID already exists.'); state.inventory.push({ ...value, entityId: event.entityId, version: 1, appliedEventIds: [event.eventId] }) }
+    if (event.eventType === 'INVENTORY_ITEM_UPDATED') { const item = state.inventory.find(candidate => candidate.entityId === event.entityId); if (!item) throw new Error('Inventory projection is missing.'); if (event.baseVersion !== item.version) this.addConflict(state, event, 'Concurrent inventory metadata updates require reconciliation.'); else { Object.assign(item, event.payload); item.version++; item.appliedEventIds.push(event.eventId) } }
     if (event.eventType === 'ITEM_ISSUED' || event.eventType === 'ITEM_RETURNED') {
       const item = state.inventory.find(i => i.entityId === event.entityId); if (!item) throw new Error('Inventory projection is missing.')
       if (item.appliedEventIds.includes(event.eventId)) return
