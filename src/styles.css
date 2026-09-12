@@ -135,3 +135,25 @@ button:focus-visible,input:focus-visible { outline:2px solid #16899a; outline-of
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
 }
 .loading-state { min-height: 100vh; display: grid; place-content: center; background: #07131f; color: white; }
+
+/* Stage 3A.5-R presentation layer. Dark is the A.R.G.U.S. default; system follows the OS. */
+:root { color-scheme:dark; --surface:#0d1930; --surface-2:#12223e; --ink:#edf3fa; --muted:#9ba9bb; --line:rgba(139,183,206,.2); }
+:root[data-theme='light'] { color-scheme:light; --surface:#fffdf8; --surface-2:#f3f1e9; --ink:#17233b; --muted:#687386; --line:#ddd6c8; }
+:root[data-theme='system'] { color-scheme:dark; }
+@media (prefers-color-scheme:light){:root[data-theme='system']{color-scheme:light;--surface:#fffdf8;--surface-2:#f3f1e9;--ink:#17233b;--muted:#687386;--line:#ddd6c8}}
+:root:not([data-theme='light']) body,:root[data-theme='system'] body { background:radial-gradient(circle at 80% 8%,rgba(55,190,211,.13),transparent 28%),linear-gradient(135deg,#081426,#101c31 50%,#091524);color:var(--ink) }
+:root:not([data-theme='light']) .main-stage,:root[data-theme='system'] .main-stage {background:transparent}
+:root:not([data-theme='light']) .topbar,:root[data-theme='system'] .topbar {background:rgba(8,20,38,.8);border-color:var(--line)}
+:root:not([data-theme='light']) .topbar h1,:root:not([data-theme='light']) .hero-row h2,:root:not([data-theme='light']) .page-intro h2,:root[data-theme='system'] .topbar h1,:root[data-theme='system'] .hero-row h2,:root[data-theme='system'] .page-intro h2 {color:var(--ink)}
+:root:not([data-theme='light']) .hero-row p,:root:not([data-theme='light']) .page-intro p,:root[data-theme='system'] .hero-row p,:root[data-theme='system'] .page-intro p {color:var(--muted)}
+:root:not([data-theme='light']) .marble-card,:root:not([data-theme='light']) .review-card,:root:not([data-theme='light']) .table-card,:root:not([data-theme='light']) .timeline,:root:not([data-theme='light']) .summary-card,:root[data-theme='system'] .marble-card,:root[data-theme='system'] .review-card,:root[data-theme='system'] .table-card,:root[data-theme='system'] .timeline,:root[data-theme='system'] .summary-card {background:linear-gradient(145deg,rgba(18,35,62,.96),rgba(9,24,43,.94));border-color:var(--line);color:var(--ink);box-shadow:0 18px 55px rgba(0,0,0,.25)}
+:root:not([data-theme='light']) .inventory-row,:root:not([data-theme='light']) .cadet-card,:root:not([data-theme='light']) .event,:root[data-theme='system'] .inventory-row,:root[data-theme='system'] .cadet-card,:root[data-theme='system'] .event {color:var(--ink);border-color:var(--line)}
+:root:not([data-theme='light']) .session-chip,:root:not([data-theme='light']) .search-wrap,:root:not([data-theme='light']) .inline-search,:root[data-theme='system'] .session-chip,:root[data-theme='system'] .search-wrap,:root[data-theme='system'] .inline-search {background:rgba(17,35,60,.92);border-color:var(--line);color:var(--ink)}
+:root:not([data-theme='light']) input,:root:not([data-theme='light']) select,:root:not([data-theme='light']) textarea,:root[data-theme='system'] input,:root[data-theme='system'] select,:root[data-theme='system'] textarea {color:var(--ink);background:#0e2039;border-color:var(--line)}
+:root:not([data-theme='light']) .demo-drawer,:root[data-theme='system'] .demo-drawer {background:linear-gradient(145deg,#12233e,#09172b);color:var(--ink)}
+:root:not([data-theme='light']) .demo-drawer h2,:root[data-theme='system'] .demo-drawer h2 {color:var(--ink)}
+:root:not([data-theme='light']) .modal,:root[data-theme='system'] .modal {background:linear-gradient(145deg,#12233e,#09172b);color:var(--ink)}
+:root:not([data-theme='light']) .modal h2,:root[data-theme='system'] .modal h2 {color:var(--ink)}
+.empty-state{padding:24px;color:var(--muted);text-align:center}.panel-rows>summary{cursor:pointer;padding:15px;list-style:none}.panel-rows>summary small{display:block;margin-top:5px;color:var(--muted)}.panel-rows>div{padding:0 15px 15px}.panel-rows>div>p{padding:9px;border-top:1px solid var(--line);font-size:11px}.demo-drawer>.primary-button{width:100%;margin-top:16px}.demo-drawer button:disabled,.gold-button:disabled{opacity:.58;cursor:not-allowed}.needed-row>span{min-width:0}.needed-row>span strong{display:block}.needed-row>span small{line-height:1.5}
+:root[data-density='compact'] .inventory-row,:root[data-density='compact'] .cadet-card,:root[data-density='compact'] .event{padding-block:10px}:root[data-density='compact'] .summary-card{padding:14px}
+@media(max-width:680px){.modal-backdrop{align-items:end;padding:0}.modal{max-height:92vh;overflow:auto;border-radius:18px 18px 0 0}.top-actions{gap:8px}.top-actions .icon-button{display:grid}.top-actions .top-avatar{display:none}.review-card{padding:18px}.distributed-panel>div{display:grid;grid-template-columns:1fr 1fr}.command-grid button{min-height:76px}.drawer-backdrop{padding-top:40px}}
