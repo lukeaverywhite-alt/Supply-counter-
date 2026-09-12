@@ -34,8 +34,14 @@ export class PrivateSyncEngine {
       for (const item of snapshot.outbox) {
         const stored = snapshot.events.find(record => record.event.eventId === item.eventId)
         if (!stored) continue
-        await this.options.provider.publish(await encryptEvent(stored.event,this.options.identity,this.options.keys))
-        await this.options.repository.transaction(state => { state.outbox=state.outbox.filter(record=>record.eventId!==item.eventId);const event=state.events.find(record=>record.event.eventId===item.eventId);if(event)event.syncStatus='SYNCHRONIZED' })
+        let envelope = snapshot.privateSyncOutbox.find(record=>record.providerId===this.options.providerId&&record.eventId===item.eventId)?.envelope
+        if (!envelope) {
+          const candidate = await encryptEvent(stored.event,this.options.identity,this.options.keys)
+          await this.options.repository.transaction(state => { const existing=state.privateSyncOutbox.find(record=>record.providerId===this.options.providerId&&record.eventId===item.eventId);if(existing)envelope=existing.envelope;else{state.privateSyncOutbox.push({providerId:this.options.providerId,eventId:item.eventId,envelope:candidate});envelope=candidate} })
+        }
+        if (!envelope) throw new Error('Private sync envelope was not durably prepared.')
+        await this.options.provider.publish(envelope)
+        await this.options.repository.transaction(state => { state.outbox=state.outbox.filter(record=>record.eventId!==item.eventId);state.privateSyncOutbox=state.privateSyncOutbox.filter(record=>record.providerId!==this.options.providerId||record.eventId!==item.eventId);const event=state.events.find(record=>record.event.eventId===item.eventId);if(event)event.syncStatus='SYNCHRONIZED' })
       }
       let cursor = (await this.options.repository.snapshot()).remoteSync.find(item=>item.providerId===this.options.providerId)?.cursor ?? '0'
       let hasMore=true
@@ -46,7 +52,11 @@ export class PrivateSyncEngine {
           catch(error){const id=typeof raw==='object'&&raw&&'eventId'in raw?String(raw.eventId):'unknown';rejected.push({eventId:id,reason:error instanceof Error?error.message:'Invalid remote envelope.'})}
         }
         await this.options.repository.transaction(state => {
-          for(const event of accepted)this.options.validateAndApply(state,event)
+          for(const event of accepted) {
+            const candidate=structuredClone(state)
+            try{this.options.validateAndApply(candidate,event);Object.assign(state,candidate)}
+            catch(error){if(!state.quarantine.some(item=>item.eventId===event.eventId))state.quarantine.push({eventId:event.eventId,reason:error instanceof Error?error.message:'Remote event application failed.',receivedAt:new Date().toISOString()})}
+          }
           for(const invalid of rejected)if(!state.quarantine.some(item=>item.eventId===invalid.eventId&&item.reason===invalid.reason))state.quarantine.push({...invalid,receivedAt:new Date().toISOString()})
           const meta=this.metadata(state);meta.cursor=page.cursor
         })

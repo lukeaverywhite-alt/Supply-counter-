@@ -14,10 +14,17 @@ export function createRelay({ database = process.env.ARGUS_RELAY_DATABASE ?? 'ar
   const memberships = organizations ?? JSON.parse(process.env.ARGUS_ORGANIZATIONS ?? '{}')
   const origins = allowedOrigins ?? (process.env.ARGUS_ALLOWED_ORIGINS ?? 'http://localhost:5173').split(',').map(x => x.trim())
   if (!Object.keys(memberships).length) throw new Error('ARGUS_ORGANIZATIONS must map opaque organization IDs to access tokens.')
-  const state = existsSync(database) ? JSON.parse(readFileSync(database,'utf8')) : { version:1, nextSequence:1, organizations:{}, events:[] }
-  const persist = () => { const temporary=`${database}.tmp`;writeFileSync(temporary,JSON.stringify(state),{mode:0o600});renameSync(temporary,database) }
+  let state
+  if (existsSync(database)) {
+    const parsed = JSON.parse(readFileSync(database,'utf8'))
+    if (parsed?.version !== 1 || !Number.isSafeInteger(parsed.nextSequence) || parsed.nextSequence < 1 || !parsed.organizations || typeof parsed.organizations !== 'object' || !Array.isArray(parsed.events)) throw new Error('Relay state is corrupt or unsupported; the source file was preserved.')
+    const sequences = parsed.events.map(row => row?.sequence)
+    if (sequences.some(value => !Number.isSafeInteger(value) || value < 1) || new Set(sequences).size !== sequences.length || parsed.nextSequence <= Math.max(0, ...sequences)) throw new Error('Relay state sequence invariant failed; the source file was preserved.')
+    state = parsed
+  } else state = { version:1, nextSequence:1, organizations:{}, events:[] }
+  const persist = value => { const temporary=`${database}.tmp`;writeFileSync(temporary,JSON.stringify(value),{mode:0o600});renameSync(temporary,database) }
   for (const [org, token] of Object.entries(memberships)) { if (!ID.test(org) || typeof token !== 'string' || token.length < 16) throw new Error('Organization IDs must be opaque and tokens must have at least 16 characters.'); state.organizations[org]=digest(token) }
-  persist()
+  persist(state)
   const windows = new Map()
   const authorize = (req, org) => { const expected = state.organizations[org]; const token = req.headers.authorization?.replace(/^Bearer\s+/i, '') ?? ''; return Boolean(expected && token && equal(expected, digest(token))) }
   const server = http.createServer(async (req, res) => {
@@ -36,7 +43,8 @@ export function createRelay({ database = process.env.ARGUS_RELAY_DATABASE ?? 'ar
       if (!authorize(req, envelope.organizationId)) return send(res, 401, { code: 'UNAUTHORIZED' }, origin)
       const prior = state.events.find(row=>row.organizationId===envelope.organizationId&&row.eventId===envelope.eventId)
       if (prior) return prior.ciphertextHash === envelope.ciphertextHash ? send(res, 200, { accepted: true, duplicate: true, sequence: prior.sequence }, origin) : send(res, 409, { code: 'EVENT_COLLISION' }, origin)
-      const sequence=state.nextSequence++;state.events.push({sequence,organizationId:envelope.organizationId,eventId:envelope.eventId,createdAt:new Date().toISOString(),senderPublicIdentity:envelope.senderPublicIdentity,keyEpoch:envelope.epochId,ciphertextHash:envelope.ciphertextHash,envelope});persist()
+      const sequence=state.nextSequence, next = { ...state, nextSequence: sequence + 1, events: [...state.events, {sequence,organizationId:envelope.organizationId,eventId:envelope.eventId,createdAt:new Date().toISOString(),senderPublicIdentity:envelope.senderPublicIdentity,keyEpoch:envelope.epochId,ciphertextHash:envelope.ciphertextHash,envelope}] }
+      persist(next); state = next
       return send(res, 201, { accepted: true, duplicate: false, sequence }, origin)
     }
     const match = url.pathname.match(/^\/api\/v1\/events\/([^/]+)$/)

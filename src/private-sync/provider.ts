@@ -1,5 +1,6 @@
 import { parseEncryptedEnvelope } from './schema'
 import type { EncryptedArgusEnvelope, HistoryPage, PrivateHistoryProvider } from './types'
+import { canonicalize } from '../distributed/canonical'
 
 export class MockPrivateHistoryProvider implements PrivateHistoryProvider {
   private values = new Map<string, EncryptedArgusEnvelope>()
@@ -7,7 +8,7 @@ export class MockPrivateHistoryProvider implements PrivateHistoryProvider {
   reorderDelivery = false
   duplicateDelivery = false
   constructor(readonly name: string) {}
-  async publish(input: EncryptedArgusEnvelope) { if (this.unavailable) throw new Error(`${this.name} unavailable.`); const envelope = parseEncryptedEnvelope(input); this.values.set(envelope.eventId, structuredClone(envelope)) }
+  async publish(input: EncryptedArgusEnvelope) { if (this.unavailable) throw new Error(`${this.name} unavailable.`); const envelope = parseEncryptedEnvelope(input), existing = this.values.get(envelope.eventId); if (existing && canonicalize(existing) !== canonicalize(envelope)) throw new Error('EVENT_COLLISION: encrypted event identity was reused.'); if (!existing) this.values.set(envelope.eventId, structuredClone(envelope)) }
   async getSince(cursor = '0'): Promise<HistoryPage> { if (this.unavailable) throw new Error(`${this.name} unavailable.`); let values: unknown[] = [...this.values.values()].slice(Number(cursor)); if (this.reorderDelivery) values.reverse(); if (this.duplicateDelivery) values = values.flatMap(value => [value, structuredClone(value)]); return { envelopes: structuredClone(values), cursor: String(this.values.size) } }
   async getByEventId(id: string) { if (this.unavailable) throw new Error(`${this.name} unavailable.`); return structuredClone(this.values.get(id)) }
 }

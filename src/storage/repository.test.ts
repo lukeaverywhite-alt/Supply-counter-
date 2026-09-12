@@ -7,6 +7,7 @@ import {
   REPLICA_STORE_NAME,
   REPOSITORY_SCHEMA_VERSION,
   migrateRepositoryState,
+  type RepositoryState,
 } from './repository'
 
 const originalIndexedDb = globalThis.indexedDB
@@ -57,6 +58,33 @@ const legacyState = () => ({
 afterEach(() => Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: originalIndexedDb }))
 
 describe('IndexedDbRepository migrations', () => {
+  it('atomically serializes concurrent read-modify-write transactions from separate tabs', async () => {
+    useFreshIndexedDb()
+    const a = new IndexedDbRepository('concurrent'), b = new IndexedDbRepository('concurrent')
+    await Promise.all([a.initialize(), b.initialize()])
+    await Promise.all([
+      a.transaction(state => { state.quarantine.push({ eventId: 'from-a', reason: 'test', receivedAt: '2026-01-01T00:00:00Z' }) }),
+      b.transaction(state => { state.quarantine.push({ eventId: 'from-b', reason: 'test', receivedAt: '2026-01-01T00:00:00Z' }) }),
+    ])
+    expect((await a.snapshot()).quarantine.map(value => value.eventId).sort()).toEqual(['from-a', 'from-b'])
+    a.close(); b.close()
+  })
+
+  it('aborts callback failures without partially committing the draft', async () => {
+    useFreshIndexedDb(); const repository = new IndexedDbRepository('rollback')
+    await repository.initialize()
+    await expect(repository.transaction(state => { state.quarantine.push({ eventId: 'partial', reason: 'must rollback', receivedAt: '2026-01-01T00:00:00Z' }); throw new Error('injected failure') })).rejects.toThrow('injected failure')
+    expect((await repository.snapshot()).quarantine).toEqual([])
+    repository.close()
+  })
+
+  it('rejects asynchronous transaction callbacks before IndexedDB can auto-close', async () => {
+    useFreshIndexedDb(); const repository = new IndexedDbRepository('async-callback')
+    await repository.initialize()
+    await expect(repository.transaction((async (state:RepositoryState) => { state.quarantine.push({ eventId:'unsafe', reason:'async callback', receivedAt:'2026-01-01T00:00:00Z' }); await Promise.resolve() }) as never)).rejects.toThrow(/must be synchronous/)
+    expect((await repository.snapshot()).quarantine).toEqual([])
+    repository.close()
+  })
   it('creates a fresh replica store and current logical state', async () => {
     useFreshIndexedDb()
     const repository = new IndexedDbRepository('fresh')
