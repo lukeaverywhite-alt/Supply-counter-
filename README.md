@@ -24,6 +24,8 @@ npm install
 npm run dev
 ```
 
+GitHub Pages hosts the A.R.G.U.S. client only. Shared organizational synchronization requires a separately deployed A.R.G.U.S. encrypted relay. Run `npm run relay:dev` for local development and see [relay deployment](docs/SYNC_RELAY_DEPLOYMENT.md); mock sync never leaves one device.
+
 ## Checks
 
 ```bash

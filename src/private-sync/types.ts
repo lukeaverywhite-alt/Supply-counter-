@@ -12,10 +12,13 @@ export type EncryptedArgusEnvelope = {
   signature: string
 }
 
-export type HistoryPage = { envelopes: unknown[]; cursor: string }
+export type HistoryPage = { envelopes: unknown[]; cursor: string; hasMore?: boolean }
+export type PublishResult = { accepted: true; duplicate: boolean; sequence: number }
+export type ProviderHealth = { ok: boolean; provider: string; protocolVersion: number }
 export interface PrivateHistoryProvider {
   readonly name: string
-  publish(envelope: EncryptedArgusEnvelope): Promise<void>
+  publish(envelope: EncryptedArgusEnvelope): Promise<void | PublishResult>
   getSince(cursor?: string): Promise<HistoryPage>
   getByEventId(eventId: string): Promise<unknown | undefined>
+  health?(): Promise<ProviderHealth>
 }

@@ -12,20 +12,23 @@
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:deploy": "node scripts/deployment-smoke.mjs"
+    "test:deploy": "node scripts/deployment-smoke.mjs",
+    "relay:dev": "node relay/server.mjs",
+    "relay:test": "node --test relay/server.test.mjs",
+    "test:sync-integration": "node --test relay/server.test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.1.1",
-    "vite": "^8.2.2",
-    "typescript": "^6.0.3",
+    "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "lucide-react": "latest"
+    "typescript": "^6.0.3",
+    "vite": "^8.2.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
