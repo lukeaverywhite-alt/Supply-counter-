@@ -1,5 +1,6 @@
 export type InventoryStatus = 'Healthy' | 'Low' | 'Out of stock' | 'Count due'
 
+/** @deprecated Compatibility-only. Do not use for authoritative operational state. */
 export type InventoryItem = {
   id: string
   name: string
@@ -14,6 +15,7 @@ export type InventoryItem = {
   status: InventoryStatus
 }
 
+/** @deprecated Compatibility-only. Do not use for authoritative operational state. */
 export type Cadet = {
   id: string
   initials: string
@@ -73,6 +75,7 @@ export type AuditEvent = {
   }
 }
 
+/** @deprecated Compatibility-only migration input. RepositoryState is authoritative. */
 export type AppData = {
   version: 3
   schoolYear: number

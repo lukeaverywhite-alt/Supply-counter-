@@ -76,7 +76,7 @@ describe('IndexedDbRepository migrations', () => {
     const repository = new IndexedDbRepository('upgrade')
     await repository.initialize()
     const migrated = await repository.snapshot()
-    expect(migrated.inventory).toEqual(legacyState().inventory)
+    expect(migrated.inventory).toEqual([expect.objectContaining({ ...legacyState().inventory[0], category: 'Uncategorized', variant: 'No variant', niin: 'Not assigned', countIncrement: 1, active: true })])
     expect(migrated.events[0]).toMatchObject({ event: { eventId: 'event-1' }, auditStatus: 'PENDING' })
     expect(migrated.outbox).toEqual(legacyState().outbox)
     expect(migrated.conflicts).toEqual(legacyState().conflicts)
