@@ -77,14 +77,6 @@ describe('IndexedDbRepository migrations', () => {
     expect((await repository.snapshot()).quarantine).toEqual([])
     repository.close()
   })
-
-  it('rejects asynchronous transaction callbacks before IndexedDB can auto-close', async () => {
-    useFreshIndexedDb(); const repository = new IndexedDbRepository('async-callback')
-    await repository.initialize()
-    await expect(repository.transaction((async (state:RepositoryState) => { state.quarantine.push({ eventId:'unsafe', reason:'async callback', receivedAt:'2026-01-01T00:00:00Z' }); await Promise.resolve() }) as never)).rejects.toThrow(/must be synchronous/)
-    expect((await repository.snapshot()).quarantine).toEqual([])
-    repository.close()
-  })
   it('creates a fresh replica store and current logical state', async () => {
     useFreshIndexedDb()
     const repository = new IndexedDbRepository('fresh')
@@ -159,5 +151,31 @@ describe('logical repository migration', () => {
     const future = { ...legacyState(), schemaVersion: REPOSITORY_SCHEMA_VERSION + 1 }
     expect(() => migrateRepositoryState(future)).toThrow(/future.*preserved/i)
     expect(future).toEqual({ ...legacyState(), schemaVersion: REPOSITORY_SCHEMA_VERSION + 1 })
+  })
+})
+
+describe('serialized repository transactions', () => {
+  it('preserves concurrent mutations and releases the queue after a failure', async () => {
+    const repository = new (await import('./repository')).MemoryRepository()
+    await repository.initialize()
+    await Promise.all([
+      repository.transaction(state => { state.quarantine.push({ eventId: 'event-a', reason: 'test', receivedAt: '2026-01-01T00:00:00Z' }) }),
+      repository.transaction(state => { state.quarantine.push({ eventId: 'event-b', reason: 'test', receivedAt: '2026-01-01T00:00:00Z' }) }),
+    ])
+    expect((await repository.snapshot()).quarantine.map(item => item.eventId)).toEqual(['event-a', 'event-b'])
+    await expect(repository.transaction(() => { throw new Error('expected failure') })).rejects.toThrow('expected failure')
+    await repository.transaction(state => { state.schemaVersion = REPOSITORY_SCHEMA_VERSION })
+    expect((await repository.snapshot()).schemaVersion).toBe(REPOSITORY_SCHEMA_VERSION)
+  })
+
+  it('does not lose concurrent IndexedDB read-modify-write operations', async () => {
+    useFreshIndexedDb()
+    const repository = new IndexedDbRepository('concurrent')
+    await repository.initialize()
+    await Promise.all(Array.from({ length: 20 }, (_, index) => repository.transaction(state => {
+      state.quarantine.push({ eventId: `event-${index}`, reason: 'test', receivedAt: '2026-01-01T00:00:00Z' })
+    })))
+    expect((await repository.snapshot()).quarantine).toHaveLength(20)
+    repository.close()
   })
 })

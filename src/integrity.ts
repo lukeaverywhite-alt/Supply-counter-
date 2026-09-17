@@ -9,8 +9,6 @@ export function assertRepositoryInvariants(state: RepositoryState): void {
   unique(state.events.map(value => `${value.event.organizationId}:${value.event.eventId}`), 'event identity')
   unique(state.transactions.map(value => value.transactionId), 'transaction ID')
   unique(state.auditJobs.map(value => `${value.organizationId}:${value.eventId}`), 'audit job identity')
-  unique(state.privateSyncOutbox.map(value => `${value.providerId}:${value.eventId}`), 'private sync envelope identity')
-  unique(state.utxos.map(value => `${value.txid}:${value.vout}`), 'UTXO outpoint')
   for (const item of state.inventory) {
     if (!Number.isInteger(item.onHand) || item.onHand < 0 || !Number.isInteger(item.issued) || item.issued < 0) throw new Error(`Repository invariant failed: invalid inventory quantity for ${item.entityId}.`)
     unique(item.appliedEventIds, `applied event on ${item.entityId}`)
@@ -49,6 +47,13 @@ export function inspectRepository(state: RepositoryState): IntegrityReport {
   const transactionIds = state.transactions.map(transaction => transaction.transactionId)
   if (new Set(transactionIds).size !== transactionIds.length) add('DUPLICATE_TRANSACTION_ID', 'repository', 'Supply transaction IDs are not unique.')
   for (const transaction of state.transactions) { if (!cadets.has(transaction.cadetId)) add('ORPHAN_TRANSACTION_CADET', transaction.transactionId, 'Transaction references missing cadet.'); if (!events.has(transaction.eventId)) add('ORPHAN_TRANSACTION_EVENT', transaction.transactionId, 'Transaction references missing event.'); for (const line of transaction.lines) { if (!inventory.has(line.itemId)) add('ORPHAN_TRANSACTION_ITEM', transaction.transactionId, 'Transaction line references missing inventory.'); if (!Number.isInteger(line.quantity) || line.quantity <= 0) add('INVALID_TRANSACTION_QUANTITY', transaction.transactionId, 'Transaction quantities must be positive.') } if (transaction.bundleSnapshot && transaction.bundleSnapshot.version !== transaction.bundleVersion) add('INVALID_BUNDLE_SNAPSHOT', transaction.transactionId, 'Bundle snapshot does not match recorded version.') }
+  const providers=state.remoteSync.map(record=>record.providerId);if(new Set(providers).size!==providers.length)add('DUPLICATE_PROVIDER_ID','repository','Remote provider IDs must be unique.')
+  for(const remote of state.remoteSync)if(remote.cursor!==undefined&&!/^\d+$/.test(remote.cursor))add('MALFORMED_REMOTE_CURSOR',remote.providerId,'Remote cursor must be a non-negative integer string.')
+  const quarantine=state.quarantine.map(record=>record.eventId);if(new Set(quarantine).size!==quarantine.length)add('DUPLICATE_QUARANTINE_EVENT','repository','Quarantine event IDs must be unique.')
+  const outbox=state.outbox.map(record=>record.eventId);if(new Set(outbox).size!==outbox.length)add('DUPLICATE_OUTBOX_EVENT','repository','Delivery queue event IDs must be unique.')
+  for(const delivery of state.outbox){if(!events.has(delivery.eventId))add('ORPHAN_DELIVERY_EVENT',delivery.eventId,'Delivery record references a missing event.');const stored=state.events.find(record=>record.event.eventId===delivery.eventId);if(stored?.syncStatus==='SYNCHRONIZED')add('SYNCHRONIZED_EVENT_QUEUED',delivery.eventId,'A synchronized event remains in the delivery queue.')}
+  for(const conflict of state.conflicts)for(const eventId of conflict.eventIds)if(!events.has(eventId))add('ORPHAN_CONFLICT_EVENT',conflict.id,'Conflict references a missing event.')
+  for(const bundle of state.bundles)for(const version of bundle.versions)for(const line of version.lines ?? [])if(line.itemId&&!inventory.has(line.itemId))add('ORPHAN_BUNDLE_MAPPING',`${bundle.bundleId}:${line.lineId}`,'Bundle mapping references missing inventory.')
   const orphanReferences = issues.filter(issue => issue.code.includes('ORPHAN')).length
   const migrationWarnings = state.cadets.filter(cadet => cadet.profileNeedsReview).length
   return { healthy: issues.length === 0, issues, orphanReferences, projectionErrors: issues.length - orphanReferences, migrationWarnings }

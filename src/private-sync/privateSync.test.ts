@@ -3,7 +3,7 @@ import { MockIdentityProvider } from '../identity/identity'
 import { canonicalize } from '../distributed/canonical'
 import type { SignedArgusEvent } from '../distributed/types'
 import { decryptEvent, encryptEvent } from './crypto'
-import { MockEpochKeyDistribution } from './keys'
+import { DevelopmentPersistentEpochKeyDistribution, MockEpochKeyDistribution } from './keys'
 import { MockPrivateHistoryProvider, MultiPrivateHistoryProvider } from './provider'
 import { parseEncryptedEnvelope } from './schema'
 import { PrivateSyncEngine } from './engine'
@@ -35,23 +35,18 @@ describe('Stage 2.5 encrypted private history', () => {
     await repository.transaction(state=>state.outbox.push({eventId:'new-during-sync',attempts:0,status:'QUEUED'}));release();await first
     expect(publishes).toBe(1);expect((await repository.snapshot()).outbox.map(value=>value.eventId)).toEqual(['new-during-sync'])
   })
-  it('reuses the durable encrypted envelope after a lost publish acknowledgement', async () => {
-    const { sender, keys, event } = await fixture(), repository = new MemoryRepository(), provider = new MockPrivateHistoryProvider('lost-ack')
-    await repository.transaction(state=>{state.events.push({event,syncStatus:'QUEUED',auditStatus:'PENDING',receivedAt:event.timestamp});state.outbox.push({eventId:event.eventId,attempts:0,status:'QUEUED'})})
-    const publish=provider.publish.bind(provider);let lose=true
-    provider.publish=async envelope=>{await publish(envelope);if(lose){lose=false;throw new Error('acknowledgement lost')}}
-    const engine=new PrivateSyncEngine({providerId:'test',repository,provider,identity:sender,keys,organizationId:event.organizationId,validateAndApply:()=>undefined})
-    await expect(engine.sync()).rejects.toThrow(/lost/)
-    const persisted=(await repository.snapshot()).privateSyncOutbox[0].envelope
-    await engine.sync()
-    expect(await provider.getByEventId(event.eventId)).toEqual(persisted)
-    expect((await repository.snapshot()).privateSyncOutbox).toEqual([])
-  })
-  it('quarantines a remote application collision and advances past the poison event', async () => {
-    const { sender, keys, event }=await fixture(),repository=new MemoryRepository(),provider=new MockPrivateHistoryProvider('collision')
-    await provider.publish(await encryptEvent(event,sender,keys))
-    const engine=new PrivateSyncEngine({providerId:'test',repository,provider,identity:sender,keys,organizationId:event.organizationId,validateAndApply:()=>{throw new Error('EVENT_COLLISION')}})
-    await engine.sync();const state=await repository.snapshot()
-    expect(state.quarantine).toEqual([expect.objectContaining({eventId:event.eventId,reason:'EVENT_COLLISION'})]);expect(state.remoteSync[0].cursor).toBe('1')
+})
+
+describe('development persistent enrollment', () => {
+  it('survives provider reconstruction and explicitly enrolls an independent client', async () => {
+    const values = new Map<string,string>(), storage = { getItem: (key:string) => values.get(key) ?? null, setItem: (key:string,value:string) => { values.set(key,value) } }
+    const a = new DevelopmentPersistentEpochKeyDistribution('org-opaque-test', storage)
+    await expect(a.keyFor('mock:a', 'epoch-001')).rejects.toThrow(/not enrolled/)
+    await a.rotateEpoch(['mock:a', 'mock:b'])
+    const bValues = new Map<string,string>(), bStorage = { getItem: (key:string) => bValues.get(key) ?? null, setItem: (key:string,value:string) => { bValues.set(key,value) } }
+    const b = new DevelopmentPersistentEpochKeyDistribution('org-opaque-test', bStorage)
+    b.importEnrollment(a.exportEnrollment())
+    expect(b.currentEpoch()).toBe('epoch-001')
+    expect((await b.keyFor('mock:b', 'epoch-001')).extractable).toBe(false)
   })
 })

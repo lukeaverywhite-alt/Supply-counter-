@@ -10,12 +10,13 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "lint": "eslint . --max-warnings=0",
+    "lint:css": "node scripts/check-css.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:deploy": "node scripts/deployment-smoke.mjs",
     "relay:dev": "node relay/server.mjs",
     "relay:test": "node --test relay/server.test.mjs",
-    "test:sync-integration": "node --test relay/server.test.mjs"
+    "test:sync-integration": "vitest run src/private-sync/syncIntegration.test.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.1.1",
@@ -30,6 +31,7 @@
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "latest",
+    "@types/node": "^22.20.2",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@vitest/coverage-v8": "^5.0.0",
