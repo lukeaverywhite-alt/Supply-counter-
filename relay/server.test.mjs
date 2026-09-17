@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile, rm } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -27,4 +27,12 @@ test('real HTTP clients use durable, isolated, cursor-paginated opaque history',
   assert.equal(recovered.event.eventId,'event_network_0001')
   const bytes = await readFile(db); assert.equal(bytes.includes(Buffer.from('Jordan Rivera')),false); assert.equal(bytes.includes(Buffer.from('SDB Jacket Medium')),false)
   await stop(relay); await rm(db,{force:true})
+})
+
+test('corrupt relay state fails closed without overwriting the source', async () => {
+  const db = path.join(tmpdir(),`argus-relay-corrupt-${crypto.randomUUID()}.json`), corrupt = '{"version":1,"nextSequence":1,"events":"lost-history"}'
+  await writeFile(db, corrupt)
+  assert.throws(() => createRelay({ database:db, organizations:{ [org]:token } }), /corrupt|unsupported/)
+  assert.equal(await readFile(db, 'utf8'), corrupt)
+  await rm(db,{force:true})
 })
