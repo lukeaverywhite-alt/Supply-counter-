@@ -16,7 +16,9 @@ export function createRelay({ database = process.env.ARGUS_RELAY_DATABASE ?? 'ar
   if (!Object.keys(memberships).length) throw new Error('ARGUS_ORGANIZATIONS must map opaque organization IDs to access tokens.')
   let state
   if (existsSync(database)) {
-    const parsed = JSON.parse(readFileSync(database,'utf8'))
+    let parsed
+    try { parsed = JSON.parse(readFileSync(database,'utf8')) }
+    catch (error) { throw new Error('Relay storage is unreadable; history was preserved and the relay did not start.', { cause: error }) }
     if (parsed?.version !== 1 || !Number.isSafeInteger(parsed.nextSequence) || parsed.nextSequence < 1 || !parsed.organizations || typeof parsed.organizations !== 'object' || !Array.isArray(parsed.events)) throw new Error('Relay state is corrupt or unsupported; the source file was preserved.')
     const sequences = parsed.events.map(row => row?.sequence)
     if (sequences.some(value => !Number.isSafeInteger(value) || value < 1) || new Set(sequences).size !== sequences.length || parsed.nextSequence <= Math.max(0, ...sequences)) throw new Error('Relay state sequence invariant failed; the source file was preserved.')

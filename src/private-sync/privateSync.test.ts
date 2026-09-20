@@ -3,7 +3,7 @@ import { MockIdentityProvider } from '../identity/identity'
 import { canonicalize } from '../distributed/canonical'
 import type { SignedArgusEvent } from '../distributed/types'
 import { decryptEvent, encryptEvent } from './crypto'
-import { MockEpochKeyDistribution } from './keys'
+import { DevelopmentPersistentEpochKeyDistribution, MockEpochKeyDistribution } from './keys'
 import { MockPrivateHistoryProvider, MultiPrivateHistoryProvider } from './provider'
 import { parseEncryptedEnvelope } from './schema'
 import { PrivateSyncEngine } from './engine'
@@ -53,5 +53,19 @@ describe('Stage 2.5 encrypted private history', () => {
     const engine=new PrivateSyncEngine({providerId:'test',repository,provider,identity:sender,keys,organizationId:event.organizationId,validateAndApply:()=>{throw new Error('EVENT_COLLISION')}})
     await engine.sync();const state=await repository.snapshot()
     expect(state.quarantine).toEqual([expect.objectContaining({eventId:event.eventId,reason:'EVENT_COLLISION'})]);expect(state.remoteSync[0].cursor).toBe('1')
+  })
+})
+
+describe('development persistent enrollment', () => {
+  it('survives provider reconstruction and explicitly enrolls an independent client', async () => {
+    const values = new Map<string,string>(), storage = { getItem: (key:string) => values.get(key) ?? null, setItem: (key:string,value:string) => { values.set(key,value) } }
+    const a = new DevelopmentPersistentEpochKeyDistribution('org-opaque-test', storage)
+    await expect(a.keyFor('mock:a', 'epoch-001')).rejects.toThrow(/not enrolled/)
+    await a.rotateEpoch(['mock:a', 'mock:b'])
+    const bValues = new Map<string,string>(), bStorage = { getItem: (key:string) => bValues.get(key) ?? null, setItem: (key:string,value:string) => { bValues.set(key,value) } }
+    const b = new DevelopmentPersistentEpochKeyDistribution('org-opaque-test', bStorage)
+    b.importEnrollment(a.exportEnrollment())
+    expect(b.currentEpoch()).toBe('epoch-001')
+    expect((await b.keyFor('mock:b', 'epoch-001')).extractable).toBe(false)
   })
 })
