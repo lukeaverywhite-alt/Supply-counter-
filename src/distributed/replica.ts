@@ -61,11 +61,11 @@ export class ArgusReplica {
     const actor = await this.identity.getPublicIdentity(); this.authorization.require(actor, 'inventory.return', options.timestamp)
     const event = await this.signed({ eventType: 'ITEM_RETURNED', entityId, baseVersion: item.version, payload: { quantity }, ...options }); await this.persistLocal(event); if (this.online) await this.sync(); return event
   }
-  async submitCount(entityId: string, countedQuantity: number, sessionId: string, options: { eventId?: string; timestamp?: string } = {}) {
+  async submitCount(entityId: string, countedQuantity: number, sessionId: string, note = '', options: { eventId?: string; timestamp?: string } = {}) {
     const state = await this.repository.snapshot(); const item = state.inventory.find(i => i.entityId === entityId)
-    if (!item || !Number.isInteger(countedQuantity) || countedQuantity < 0) throw new Error('Invalid physical count.')
+    if (!item || !Number.isInteger(countedQuantity) || countedQuantity < 0 || !sessionId.trim() || note.length > 500) throw new Error('Invalid physical count.')
     const actor = await this.identity.getPublicIdentity(); this.authorization.require(actor, 'inventory.count', options.timestamp)
-    const event = await this.signed({ eventType: 'INVENTORY_COUNT_SUBMITTED', entityId, baseVersion: item.version, payload: { sessionId, expectedQuantity: item.onHand, countedQuantity, discrepancy: countedQuantity - item.onHand }, ...options }); await this.persistLocal(event); if (this.online) await this.sync(); return event
+    const event = await this.signed({ eventType: 'INVENTORY_COUNT_SUBMITTED', entityId, baseVersion: item.version, payload: { sessionId, expectedQuantity: item.onHand, countedQuantity, discrepancy: countedQuantity - item.onHand, ...(note.trim() ? { note: note.trim() } : {}) }, ...options }); await this.persistLocal(event); if (this.online) await this.sync(); return event
   }
   async createInventoryItem(input: Omit<InventoryProjection, 'entityId' | 'version' | 'appliedEventIds' | 'issued'> & { entityId?: string; issued?: number }, options: { eventId?: string; timestamp?: string } = {}) {
     if (!input.name.trim() || !input.category.trim() || !Number.isInteger(input.onHand) || input.onHand < 0 || !Number.isInteger(input.countIncrement) || input.countIncrement < 1) throw new Error('Inventory item details are invalid.')
