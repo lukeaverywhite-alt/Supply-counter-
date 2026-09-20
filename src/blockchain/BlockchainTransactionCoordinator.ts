@@ -10,7 +10,7 @@ export interface AuditTransactionExecutor {
   lookup(transactionId: string): Promise<'UNKNOWN'|'BROADCAST'|'CONFIRMED'|'PROOF_VERIFIED'>
 }
 
-const eligible = (job: BlockchainAuditJob, now: number) => ['QUEUED','RETRYABLE_FAILURE'].includes(job.state) || (['CLAIMED','BUILDING','SIGNING','BROADCASTING'].includes(job.state) && Boolean(job.leaseExpiresAt) && Date.parse(job.leaseExpiresAt!) <= now)
+const eligible = (job: BlockchainAuditJob, now: number) => ['QUEUED','RETRYABLE_FAILURE','BROADCAST','CONFIRMED'].includes(job.state) || (['CLAIMED','BUILDING','SIGNING','BROADCASTING'].includes(job.state) && Boolean(job.leaseExpiresAt) && Date.parse(job.leaseExpiresAt!) <= now)
 
 export class BlockchainTransactionCoordinator {
   private running?: Promise<void>
@@ -23,10 +23,10 @@ export class BlockchainTransactionCoordinator {
     return locks ? locks.request(`argus:blockchain:${this.lockScope}`, run) : run()
   }
 
-  private async claim(): Promise<BlockchainAuditJob | undefined> {
+  private async claim(processed: ReadonlySet<string>): Promise<BlockchainAuditJob | undefined> {
     let claimed: BlockchainAuditJob | undefined
     await this.repository.transaction(state => {
-      const now = this.now(), job = state.auditJobs.find(value => eligible(value, now.getTime()))
+      const now = this.now(), job = state.auditJobs.find(value => !processed.has(value.jobId) && eligible(value, now.getTime()))
       if (!job) return
       Object.assign(job, { state: 'CLAIMED', leaseOwner: this.workerId, leaseExpiresAt: new Date(now.getTime() + this.leaseMs).toISOString(), updatedAt: now.toISOString(), attempts: job.attempts + 1, lastError: undefined })
       claimed = structuredClone(job)
@@ -37,10 +37,12 @@ export class BlockchainTransactionCoordinator {
   private update(jobId: string, change: (job: BlockchainAuditJob, state: RepositoryState) => void) { return this.repository.transaction(state => { const job = state.auditJobs.find(value => value.jobId === jobId && value.leaseOwner === this.workerId); if (!job) throw new Error('Audit job lease was lost.'); change(job, state); job.updatedAt = this.now().toISOString() }) }
 
   private async processQueue() {
-    for (;;) { const job = await this.claim(); if (!job) return; if (!(await this.processJob(job))) return }
+    const processed = new Set<string>()
+    for (;;) { const job = await this.claim(processed); if (!job) return; processed.add(job.jobId); await this.processJob(job) }
   }
 
   private async processJob(job: BlockchainAuditJob) {
+    let reservationId = job.reservationId
     try {
       let prepared: PreparedAuditTransaction | undefined
       if (job.candidateTransactionId && job.signedTransaction) {
@@ -51,9 +53,10 @@ export class BlockchainTransactionCoordinator {
         await this.update(job.jobId, value => { value.state = 'BUILDING' })
         const reservation = await this.reservations.reserve(job.jobId, this.leaseMs)
         if (!reservation && this.executor.network !== 'MOCK') throw new Error('No unreserved TESTNET UTXO is available.')
+        reservationId = reservation?.reservationId
         prepared = await this.executor.prepare(job)
         if (!prepared.candidateTransactionId || !prepared.signedTransaction) throw new Error('Provider did not return a recoverable candidate transaction.')
-        await this.update(job.jobId, value => { value.state = 'BROADCASTING'; value.candidateTransactionId = prepared!.candidateTransactionId; value.signedTransaction = prepared!.signedTransaction })
+        await this.update(job.jobId, value => { value.state = 'BROADCASTING'; value.candidateTransactionId = prepared!.candidateTransactionId; value.signedTransaction = prepared!.signedTransaction; value.reservationId = reservationId })
       }
       const result = await this.executor.broadcast(prepared)
       if (result.transactionId !== prepared.candidateTransactionId) throw new Error('Broadcast transaction ID differs from the persisted candidate transaction ID.')
@@ -63,7 +66,7 @@ export class BlockchainTransactionCoordinator {
       await this.repository.transaction(state => { const value = state.auditJobs.find(candidate => candidate.jobId === job.jobId && candidate.leaseOwner === this.workerId); if (value) Object.assign(value, { state: 'RETRYABLE_FAILURE', lastError: error instanceof Error ? error.message : 'Blockchain audit processing failed.', leaseOwner: undefined, leaseExpiresAt: undefined, updatedAt: this.now().toISOString() }) })
       // Keep reservations for a persisted candidate: it may already have spent the input.
       const current = (await this.repository.snapshot()).auditJobs.find(value => value.jobId === job.jobId)
-      if (!current?.candidateTransactionId) await this.reservations.release(job.jobId)
+      if (!current?.candidateTransactionId && reservationId) await this.reservations.release(job.jobId, reservationId)
       return false
     }
   }
@@ -71,9 +74,12 @@ export class BlockchainTransactionCoordinator {
   private async finish(jobId: string, transactionId: string, status: 'BROADCAST'|'CONFIRMED'|'PROOF_VERIFIED') {
     await this.update(jobId, (job, state) => {
       Object.assign(job, { state: status, transactionId, candidateTransactionId: transactionId, leaseOwner: undefined, leaseExpiresAt: undefined })
+      if (job.reservationId) {
+        const reservation = state.utxos.find(value => value.status === 'RESERVED' && value.reservedByJobId === job.jobId && value.reservationId === job.reservationId)
+        if (reservation) Object.assign(reservation, { status: 'SPENT', leaseExpiresAt: undefined })
+      }
       const event = state.events.find(record => record.event.eventId === job.eventId && record.event.organizationId === job.organizationId)
       if (event) event.auditStatus = status
     })
-    await this.reservations.consume(jobId)
   }
 }
