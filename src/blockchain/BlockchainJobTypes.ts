@@ -17,6 +17,7 @@ export type BlockchainAuditJob = {
   transactionId?: string
   candidateTransactionId?: string
   signedTransaction?: string
+  reservationId?: string
   lastError?: string
 }
 

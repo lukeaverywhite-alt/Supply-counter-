@@ -1,14 +1,16 @@
 import type { BundleProjection, CadetProjection, ConflictRecord, InventoryProjection, OutboxRecord, StillNeededProjection, StoredEvent, SupplyTransaction } from '../distributed/types'
 import type { BlockchainAuditJob, UtxoReservation } from '../blockchain/BlockchainJobTypes'
 import { assertRepositoryInvariants } from '../integrity'
+import type { EncryptedArgusEnvelope } from '../private-sync/types'
 
-export const REPOSITORY_SCHEMA_VERSION = 7
+export const REPOSITORY_SCHEMA_VERSION = 8
 export const INDEXED_DB_VERSION = 4
 export const REPLICA_STORE_NAME = 'replica'
 export const REPLICA_STATE_KEY = 'state'
 export type RemoteSyncMetadata = { providerId: string; cursor?: string; lastAttemptAt?: string; lastSuccessAt?: string; lastError?: string; state: 'DISCONNECTED'|'CONNECTING'|'SYNCHRONIZING'|'SYNCHRONIZED'|'DEGRADED'|'FAILED' }
 export type QuarantinedEnvelope = { eventId: string; reason: string; receivedAt: string }
-export type RepositoryState = { schemaVersion: number; events: StoredEvent[]; outbox: OutboxRecord[]; auditJobs: BlockchainAuditJob[]; utxos: UtxoReservation[]; inventory: InventoryProjection[]; cadets: CadetProjection[]; bundles: BundleProjection[]; stillNeeded: StillNeededProjection[]; transactions: SupplyTransaction[]; conflicts: ConflictRecord[]; remoteSync: RemoteSyncMetadata[]; quarantine: QuarantinedEnvelope[] }
+export type PrivateSyncOutboxRecord = { providerId: string; eventId: string; envelope: EncryptedArgusEnvelope }
+export type RepositoryState = { schemaVersion: number; events: StoredEvent[]; outbox: OutboxRecord[]; privateSyncOutbox: PrivateSyncOutboxRecord[]; auditJobs: BlockchainAuditJob[]; utxos: UtxoReservation[]; inventory: InventoryProjection[]; cadets: CadetProjection[]; bundles: BundleProjection[]; stillNeeded: StillNeededProjection[]; transactions: SupplyTransaction[]; conflicts: ConflictRecord[]; remoteSync: RemoteSyncMetadata[]; quarantine: QuarantinedEnvelope[] }
 export interface ArgusRepository {
   initialize(): Promise<void>
   snapshot(): Promise<RepositoryState>
@@ -16,28 +18,25 @@ export interface ArgusRepository {
   transaction(change: (draft: RepositoryState) => void): Promise<void>
 }
 
-const empty = (): RepositoryState => ({ schemaVersion: REPOSITORY_SCHEMA_VERSION, events: [], outbox: [], auditJobs: [], utxos: [], inventory: [], cadets: [], bundles: [], stillNeeded: [], transactions: [], conflicts: [], remoteSync: [], quarantine: [] })
+const empty = (): RepositoryState => ({ schemaVersion: REPOSITORY_SCHEMA_VERSION, events: [], outbox: [], privateSyncOutbox: [], auditJobs: [], utxos: [], inventory: [], cadets: [], bundles: [], stillNeeded: [], transactions: [], conflicts: [], remoteSync: [], quarantine: [] })
 export function migrateRepositoryState(value: unknown): RepositoryState {
   if (!value || typeof value !== 'object') throw new Error('Unreadable A.R.G.U.S. repository; source was preserved.')
   const source = value as Partial<RepositoryState>
   if (source.schemaVersion !== undefined && source.schemaVersion > REPOSITORY_SCHEMA_VERSION) throw new Error('Unsupported future repository schema; source was preserved.')
   if (!Array.isArray(source.events) || !Array.isArray(source.outbox) || !Array.isArray(source.inventory) || !Array.isArray(source.conflicts)) throw new Error('Malformed A.R.G.U.S. repository; source was preserved.')
-  return { schemaVersion: REPOSITORY_SCHEMA_VERSION, events: source.events.map(record => ({ ...record, auditStatus: record.auditStatus ?? 'PENDING' })), outbox: source.outbox, auditJobs: source.auditJobs ?? [], utxos: source.utxos ?? [], inventory: source.inventory.map(item => ({ ...item, category: item.category ?? 'Uncategorized', variant: item.variant ?? 'No variant', niin: item.niin ?? 'Not assigned', issued: item.issued ?? 0, countIncrement: item.countIncrement ?? 1, active: item.active ?? true })), cadets: (source.cadets ?? []).map(cadet => ({ ...cadet, currentProperty: cadet.currentProperty.map((raw, index) => { const property = raw as typeof raw & { size?: string; variant?: string; propertyId?: string; issueEventId?: string; issueTransactionId?: string }, legacyBase = `legacy:${cadet.cadetId}:${index}`; return { ...property, variant: property.variant ?? property.size ?? 'No variant', propertyId: property.propertyId ?? `${legacyBase}:property`, issueEventId: property.issueEventId ?? `${legacyBase}:event`, issueTransactionId: property.issueTransactionId ?? `${legacyBase}:transaction` } }) })), bundles: source.bundles ?? [], stillNeeded: source.stillNeeded ?? [], transactions: source.transactions ?? [], conflicts: source.conflicts, remoteSync: source.remoteSync ?? [], quarantine: source.quarantine ?? [] }
+  return { schemaVersion: REPOSITORY_SCHEMA_VERSION, events: source.events.map(record => ({ ...record, auditStatus: record.auditStatus ?? 'PENDING' })), outbox: source.outbox, privateSyncOutbox: source.privateSyncOutbox ?? [], auditJobs: source.auditJobs ?? [], utxos: source.utxos ?? [], inventory: source.inventory.map(item => ({ ...item, category: item.category ?? 'Uncategorized', variant: item.variant ?? 'No variant', niin: item.niin ?? 'Not assigned', issued: item.issued ?? 0, countIncrement: item.countIncrement ?? 1, active: item.active ?? true })), cadets: (source.cadets ?? []).map(cadet => ({ ...cadet, currentProperty: cadet.currentProperty.map((raw, index) => { const property = raw as typeof raw & { size?: string; variant?: string; propertyId?: string; issueEventId?: string; issueTransactionId?: string }, legacyBase = `legacy:${cadet.cadetId}:${index}`; return { ...property, variant: property.variant ?? property.size ?? 'No variant', propertyId: property.propertyId ?? `${legacyBase}:property`, issueEventId: property.issueEventId ?? `${legacyBase}:event`, issueTransactionId: property.issueTransactionId ?? `${legacyBase}:transaction` } }) })), bundles: source.bundles ?? [], stillNeeded: source.stillNeeded ?? [], transactions: source.transactions ?? [], conflicts: source.conflicts, remoteSync: source.remoteSync ?? [], quarantine: source.quarantine ?? [] }
 }
 export class MemoryRepository implements ArgusRepository {
   private state = empty()
-  private pending: Promise<void> = Promise.resolve()
+  private writes: Promise<void> = Promise.resolve()
   async initialize() {}
   async snapshot() { return structuredClone(this.state) }
-  transaction(change: (draft: RepositoryState) => void) { return this.serialize(async () => { const draft = structuredClone(this.state); change(draft); this.state = draft }) }
-  private serialize(work: () => Promise<void>) { const result = this.pending.then(work, work); this.pending = result.catch(() => undefined); return result }
+  transaction(change: (draft: RepositoryState) => void) { const operation = this.writes.then(() => { const draft = structuredClone(this.state), result = (change as (value: RepositoryState) => unknown)(draft); if (result && typeof (result as PromiseLike<unknown>).then === 'function') throw new Error('Repository transaction callbacks must be synchronous.'); assertRepositoryInvariants(draft); this.state = draft }); this.writes = operation.catch(() => undefined); return operation }
 }
 
 export const INDEXED_DB_NAME = 'argus-stage2'
 export class IndexedDbRepository implements ArgusRepository {
   private db?: IDBDatabase
-  /** Serializes every complete read-modify-write cycle; errors cannot poison the queue. */
-  private pending: Promise<void> = Promise.resolve()
   constructor(private readonly name = INDEXED_DB_NAME) {}
   async initialize() {
     if (this.db) return
@@ -103,7 +102,8 @@ export class IndexedDbRepository implements ArgusRepository {
       request.onsuccess = () => {
         try {
           const draft = structuredClone(request.result ? migrateRepositoryState(request.result) : empty())
-          change(draft)
+          const result = (change as (value: RepositoryState) => unknown)(draft)
+          if (result && typeof (result as PromiseLike<unknown>).then === 'function') throw new Error('Repository transaction callbacks must be synchronous.')
           assertRepositoryInvariants(draft)
           store.put(draft, REPLICA_STATE_KEY)
         } catch (error) { callbackError = error; tx.abort() }
@@ -114,8 +114,5 @@ export class IndexedDbRepository implements ArgusRepository {
       tx.onabort = () => reject(callbackError ?? tx.error ?? new Error('Repository transaction was aborted.'))
     })
   }
-  async snapshot() { return structuredClone((await this.read()) ?? empty()) }
-  transaction(change: (draft: RepositoryState) => void) { return this.serialize(async () => { const draft = structuredClone((await this.read()) ?? empty()); change(draft); await this.write(draft) }) }
-  private serialize(work: () => Promise<void>) { const result = this.pending.then(work, work); this.pending = result.catch(() => undefined); return result }
   close() { this.db?.close(); this.db = undefined }
 }

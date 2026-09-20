@@ -35,6 +35,25 @@ describe('Stage 2.5 encrypted private history', () => {
     await repository.transaction(state=>state.outbox.push({eventId:'new-during-sync',attempts:0,status:'QUEUED'}));release();await first
     expect(publishes).toBe(1);expect((await repository.snapshot()).outbox.map(value=>value.eventId)).toEqual(['new-during-sync'])
   })
+  it('reuses the durable encrypted envelope after a lost publish acknowledgement', async () => {
+    const { sender, keys, event } = await fixture(), repository = new MemoryRepository(), provider = new MockPrivateHistoryProvider('lost-ack')
+    await repository.transaction(state=>{state.events.push({event,syncStatus:'QUEUED',auditStatus:'PENDING',receivedAt:event.timestamp});state.outbox.push({eventId:event.eventId,attempts:0,status:'QUEUED'})})
+    const publish=provider.publish.bind(provider);let lose=true
+    provider.publish=async envelope=>{await publish(envelope);if(lose){lose=false;throw new Error('acknowledgement lost')}}
+    const engine=new PrivateSyncEngine({providerId:'test',repository,provider,identity:sender,keys,organizationId:event.organizationId,validateAndApply:()=>undefined})
+    await expect(engine.sync()).rejects.toThrow(/lost/)
+    const persisted=(await repository.snapshot()).privateSyncOutbox[0].envelope
+    await engine.sync()
+    expect(await provider.getByEventId(event.eventId)).toEqual(persisted)
+    expect((await repository.snapshot()).privateSyncOutbox).toEqual([])
+  })
+  it('quarantines a remote application collision and advances past the poison event', async () => {
+    const { sender, keys, event }=await fixture(),repository=new MemoryRepository(),provider=new MockPrivateHistoryProvider('collision')
+    await provider.publish(await encryptEvent(event,sender,keys))
+    const engine=new PrivateSyncEngine({providerId:'test',repository,provider,identity:sender,keys,organizationId:event.organizationId,validateAndApply:()=>{throw new Error('EVENT_COLLISION')}})
+    await engine.sync();const state=await repository.snapshot()
+    expect(state.quarantine).toEqual([expect.objectContaining({eventId:event.eventId,reason:'EVENT_COLLISION'})]);expect(state.remoteSync[0].cursor).toBe('1')
+  })
 })
 
 describe('development persistent enrollment', () => {

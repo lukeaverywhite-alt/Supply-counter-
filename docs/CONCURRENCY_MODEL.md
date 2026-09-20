@@ -12,7 +12,7 @@ A.R.G.U.S. uses complementary protections:
 
 Inventory issue/return validation and all projection changes occur in the repository callback. Multi-line mutations therefore either apply completely or record a conflict without applying any line. Commit-time invariants reject negative inventory, invalid property quantities, over-fulfilled requirements, and duplicate critical identities.
 
-Private synchronization snapshots work to perform network I/O, but each acknowledgement removes only its own outbox row in a fresh atomic transaction. New rows created during network I/O remain queued. A page cursor advances in the same transaction as accepted-event application and quarantine recording. Duplicate encrypted identities with different content are rejected.
+Private synchronization snapshots work to perform network I/O, but each acknowledgement removes only its own outbox row in a fresh atomic transaction. New rows created during network I/O remain queued. The randomly nonced encrypted envelope is persisted before its first publish and reused after a lost acknowledgement; retrying therefore cannot create a ciphertext collision for the same event identity. A page cursor advances in the same transaction as per-event application and quarantine recording. Invalid or colliding remote events are quarantined without partially mutating the projection or permanently blocking later relay events. Duplicate encrypted identities with different content are rejected.
 
 ## Recovery and remaining boundary
 

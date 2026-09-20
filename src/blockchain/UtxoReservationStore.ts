@@ -14,6 +14,5 @@ export class UtxoReservationStore {
     })
     return reserved
   }
-  async release(jobId: string) { await this.repository.transaction(state => { for (const value of state.utxos) if (value.status === 'RESERVED' && value.reservedByJobId === jobId) Object.assign(value, { status: 'AVAILABLE', reservationId: undefined, reservedByJobId: undefined, reservedAt: undefined, leaseExpiresAt: undefined }) }) }
-  async consume(jobId: string) { await this.repository.transaction(state => { for (const value of state.utxos) if (value.status === 'RESERVED' && value.reservedByJobId === jobId) Object.assign(value, { status: 'SPENT', leaseExpiresAt: undefined }) }) }
+  async release(jobId: string, reservationId: string) { await this.repository.transaction(state => { for (const value of state.utxos) if (value.status === 'RESERVED' && value.reservedByJobId === jobId && value.reservationId === reservationId) Object.assign(value, { status: 'AVAILABLE', reservationId: undefined, reservedByJobId: undefined, reservedAt: undefined, leaseExpiresAt: undefined }) }) }
 }
