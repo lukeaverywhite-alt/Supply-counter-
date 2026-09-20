@@ -9,6 +9,7 @@ This repository currently contains the first functional front-end prototype. It 
 - Installable PWA shell with an A.R.G.U.S. home-screen icon
 - Fast physical counting with 1, 5, 10, and custom increments
 - Persisted local draft counts that remain separate from official inventory until submission
+- Signed physical-count events retain a unique session identifier and the operator's optional note
 - Functional local count submission, item creation, issue, return, and annual rollover actions
 - Local audit events for every inventory-changing action
 - Privacy-filtered, SHA-256 audit commitments with an offline mock blockchain provider
@@ -54,7 +55,7 @@ The build uses relative asset paths so the installed app, manifest, icon, and se
 
 ## Product boundary
 
-Authentication, shared real-time counting, production roster imports, backend persistence, and authoritative audit storage require the planned backend phase. The current local prototype intentionally does not claim to provide those security guarantees.
+Authentication, normal-runtime encrypted synchronization, production roster imports, backend account persistence, and authoritative audit storage require the next operational phase. The current local prototype intentionally does not claim to provide those security guarantees. The separately tested encrypted relay is protocol infrastructure, not an account service and not proof that the normal application is operationally ready.
 
 ## BSV integration status
 
