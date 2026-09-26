@@ -13,13 +13,13 @@ export interface ArgusWalletAdapter {
 export type WalletConnectionState = 'DISCONNECTED' | 'CONNECTED' | 'ERROR'
 export type WalletTransactionStatus = 'BROADCAST' | 'CONFIRMED' | 'PROOF_VERIFIED' | 'UNKNOWN'
 export type TestnetWalletStatus = {
-  network: 'TESTNET'; connection: WalletConnectionState; mode: 'LIVE' | 'MOCK' | 'UNCONFIGURED'
+  network: 'TESTNET'; connection: WalletConnectionState; mode: 'LIVE' | 'EMBEDDED' | 'MOCK' | 'UNCONFIGURED'
   receivingAddress?: string; balanceSatoshis?: number
-  recentTransactions: Array<{ transactionId: string; status: WalletTransactionStatus }>; error?: string
+  recentTransactions: Array<{ transactionId: string; status: WalletTransactionStatus }>; error?: string; requiresSetup?: boolean; requiresUnlock?: boolean
 }
 
 /** Read-only status boundary. It intentionally exposes no signing or key-export operation. */
-export interface TestnetWalletStatusProvider { getStatus(): Promise<TestnetWalletStatus> }
+export interface TestnetWalletStatusProvider { getStatus(): Promise<TestnetWalletStatus>; create?(password: string): Promise<TestnetWalletStatus>; unlock?(password: string): Promise<TestnetWalletStatus>; lock?(): void }
 
 export class UnconfiguredTestnetWalletStatusProvider implements TestnetWalletStatusProvider {
   async getStatus(): Promise<TestnetWalletStatus> { return { network: 'TESTNET', connection: 'DISCONNECTED', mode: 'UNCONFIGURED', recentTransactions: [] } }

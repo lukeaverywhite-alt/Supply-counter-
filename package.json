@@ -19,6 +19,7 @@
     "test:sync-integration": "vitest run src/private-sync/syncIntegration.test.ts"
   },
   "dependencies": {
+    "@bsv/sdk": "^2.8.8",
     "@vitejs/plugin-react": "^6.1.1",
     "lucide-react": "latest",
     "react": "latest",
