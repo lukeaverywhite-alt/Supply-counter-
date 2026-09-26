@@ -1,8 +1,9 @@
-import { P2PKH, PrivateKey, Transaction } from '@bsv/sdk'
+import { P2PKH, PrivateKey, SatoshisPerKilobyte, Transaction } from '@bsv/sdk'
 import type { TestnetWalletStatus, TestnetWalletStatusProvider } from './ArgusWalletAdapter'
 
 const STORAGE_KEY = 'argus:testnet-wallet:v1'
 const API = 'https://api.whatsonchain.com/v1/bsv/test'
+const TESTNET_FEE_MODEL = new SatoshisPerKilobyte(100)
 const encoder = new TextEncoder()
 
 type Vault = { version: 1; salt: string; iv: string; ciphertext: string; address: string; createdAt: string; recentTransactions?: TestnetWalletStatus['recentTransactions'] }
@@ -27,6 +28,8 @@ async function backupKey(password: string, salt: Uint8Array, usage: KeyUsage[]) 
 export class EmbeddedTestnetWallet implements TestnetWalletStatusProvider {
   private key?: PrivateKey
   private operation?: Promise<unknown>
+  private failedUnlocks = 0
+  private unlockBlockedUntil = 0
 
   constructor(private readonly storage: Pick<Storage, 'getItem'|'setItem'> = localStorage, private readonly fetcher: typeof fetch = fetch) {}
 
@@ -54,6 +57,7 @@ export class EmbeddedTestnetWallet implements TestnetWalletStatusProvider {
   }
 
   async unlock(password: string) {
+    if (Date.now() < this.unlockBlockedUntil) throw new Error('Wallet unlock is temporarily rate-limited. Wait one minute before retrying.')
     const vault = this.readVault()
     let privateKey: PrivateKey
     try {
@@ -61,10 +65,16 @@ export class EmbeddedTestnetWallet implements TestnetWalletStatusProvider {
       const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: base64ToBytes(vault.iv) }, key, base64ToBytes(vault.ciphertext))
       privateKey = PrivateKey.fromWif(new TextDecoder().decode(plaintext))
       if (privateKey.toAddress('testnet') !== vault.address) throw new Error('Wallet address mismatch.')
-    } catch { throw new Error('The wallet password is incorrect or the encrypted wallet is damaged.') }
+    } catch (error) {
+      this.failedUnlocks += 1
+      if (this.failedUnlocks >= 5) this.unlockBlockedUntil = Date.now() + 60_000
+      throw new Error('The wallet password is incorrect or the encrypted wallet is damaged.', { cause: error })
+    }
     // Network status is intentionally outside the decrypt catch: an outage must
     // never be misreported as a wrong password or damaged key vault.
     this.key = privateKey
+    this.failedUnlocks = 0
+    this.unlockBlockedUntil = 0
     return this.getStatus()
   }
 
@@ -118,7 +128,9 @@ export class EmbeddedTestnetWallet implements TestnetWalletStatusProvider {
     if (!this.key) return { network: 'TESTNET', connection: 'DISCONNECTED', mode: 'EMBEDDED', receivingAddress: vault.address, recentTransactions, requiresUnlock: true }
     try {
       const utxos = await this.utxos(vault.address)
-      return { network: 'TESTNET', connection: 'CONNECTED', mode: 'EMBEDDED', receivingAddress: vault.address, balanceSatoshis: utxos.reduce((sum, output) => sum + output.value, 0), recentTransactions }
+      const confirmed = utxos.filter(output => (output.height ?? 0) > 0).reduce((sum, output) => sum + output.value, 0)
+      const unconfirmed = utxos.filter(output => !output.height || output.height <= 0).reduce((sum, output) => sum + output.value, 0)
+      return { network: 'TESTNET', connection: 'CONNECTED', mode: 'EMBEDDED', receivingAddress: vault.address, balanceSatoshis: confirmed, unconfirmedBalanceSatoshis: unconfirmed, recentTransactions }
     } catch (error) {
       return { network: 'TESTNET', connection: 'ERROR', mode: 'EMBEDDED', receivingAddress: vault.address, recentTransactions, error: error instanceof Error ? error.message : 'Could not reach the BSV testnet service.' }
     }
@@ -146,14 +158,16 @@ export class EmbeddedTestnetWallet implements TestnetWalletStatusProvider {
     }
     transaction.addOutput({ satoshis: 1, lockingScript: (await import('@bsv/sdk')).LockingScript.fromHex(lockingScriptHex) })
     transaction.addOutput({ change: true, lockingScript: new P2PKH().lock(address) })
-    await transaction.fee(); await transaction.sign()
+    // A deterministic fee model avoids an unrelated mainnet policy lookup and
+    // keeps every network request on the explicitly configured testnet API.
+    await transaction.fee(TESTNET_FEE_MODEL); await transaction.sign()
     const response = await this.fetcher(`${API}/tx/raw`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ txhex: transaction.toHex() }) })
     if (!response.ok) throw new Error(`Testnet broadcast was rejected (${response.status}).`)
     const body = await response.json() as string | { txid?: string }
     const transactionId = typeof body === 'string' ? body : body.txid
     if (!transactionId || !/^[0-9a-f]{64}$/i.test(transactionId)) throw new Error('Broadcaster did not return a valid transaction ID.')
     const vault = this.readVault()
-    vault.recentTransactions = [{ transactionId, status: 'BROADCAST' as const }, ...(vault.recentTransactions ?? []).filter(item => item.transactionId !== transactionId)].slice(0, 10)
+    vault.recentTransactions = [{ transactionId, status: 'BROADCAST' as const, timestamp: new Date().toISOString() }, ...(vault.recentTransactions ?? []).filter(item => item.transactionId !== transactionId)].slice(0, 10)
     this.storage.setItem(STORAGE_KEY, JSON.stringify(vault))
     return { transactionId, tx: transaction.toBinary() }
   }
@@ -185,5 +199,5 @@ function parseBackup(serialized: string): WalletBackup {
 }
 
 function validatePassword(password: string) {
-  if (password.length < 12) throw new Error('Use at least 12 characters for the wallet password.')
+  if (password.length < 12 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) throw new Error('Use at least 12 characters including a letter and number for the wallet password.')
 }

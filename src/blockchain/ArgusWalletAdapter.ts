@@ -15,8 +15,8 @@ export type WalletConnectionState = 'DISCONNECTED' | 'CONNECTED' | 'ERROR'
 export type WalletTransactionStatus = 'BROADCAST' | 'CONFIRMED' | 'PROOF_VERIFIED' | 'UNKNOWN'
 export type TestnetWalletStatus = {
   network: 'TESTNET'; connection: WalletConnectionState; mode: 'LIVE' | 'EMBEDDED' | 'MOCK' | 'UNCONFIGURED'
-  receivingAddress?: string; balanceSatoshis?: number
-  recentTransactions: Array<{ transactionId: string; status: WalletTransactionStatus }>; error?: string; requiresSetup?: boolean; requiresUnlock?: boolean
+  receivingAddress?: string; balanceSatoshis?: number; unconfirmedBalanceSatoshis?: number
+  recentTransactions: Array<{ transactionId: string; status: WalletTransactionStatus; timestamp?: string }>; error?: string; requiresSetup?: boolean; requiresUnlock?: boolean
 }
 
 /** Wallet lifecycle/status boundary. It intentionally exposes no key-export operation. */
@@ -29,7 +29,7 @@ export interface TestnetWalletStatusProvider { getStatus(): Promise<TestnetWalle
  * this boundary.
  */
 export class Brc100TestnetWalletProvider implements TestnetWalletStatusProvider {
-  constructor(private readonly wallet: Pick<WalletInterface, 'getNetwork'|'getPublicKey'|'listActions'|'isAuthenticated'> = new WalletClient('auto')) {}
+  constructor(private readonly wallet: Pick<WalletInterface, 'getNetwork'|'getPublicKey'|'listActions'|'isAuthenticated'|'createAction'> = new WalletClient('auto')) {}
 
   getWallet() { return this.wallet }
 

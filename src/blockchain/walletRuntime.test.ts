@@ -10,5 +10,6 @@ describe('wallet runtime composition', () => {
     const runtime = createWalletRuntime(undefined)
     expect(runtime.mode).toBe('unconfigured')
     expect((await runtime.wallet.getStatus()).mode).toBe('UNCONFIGURED')
+    expect(() => runtime.createEncryptedEventPublisher({} as never,'org-a')).toThrow('Configure')
   })
 })
