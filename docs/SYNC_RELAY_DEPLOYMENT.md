@@ -2,6 +2,19 @@
 
 The relay stores opaque encrypted envelopes; it has no cadet, inventory, property, or Still Needed tables and no decryption keys. GitHub Pages hosts only the client. Deploy the relay separately on Node.js 24 with durable disk.
 
+## Enroll each browser
+
+Open **Settings → Shared Synchronization** in the app and enter the relay URL,
+organization ID, and enrollment secret configured on the relay. Choose **Save
+enrollment & reconnect**. Enter the same enrollment on every authorized device;
+after reload the header must say **SHARED SYNC · CONNECTED**. The secret remains
+in that browser's local storage and is used to derive the client-side encryption
+key; it is not compiled into the application or sent as event plaintext.
+
+The BSV testnet audit path is deliberately separate. Blockchain commitments are
+not an operational database and cannot reconstruct inventory on another device;
+cross-device state is recovered by replaying the encrypted relay history.
+
 ## Development
 
 Copy `relay/.env.example` values into the host environment, generate a random `org_...` identifier and at least 128-bit random token, then run `npm run relay:dev`. The default bind address is loopback. For a same-Wi-Fi test set `ARGUS_RELAY_HOST=0.0.0.0`; use the computer's LAN IP from the phone because `localhost` on the phone means the phone. Keep authentication enabled and do not expose this HTTP development listener publicly.
