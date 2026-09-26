@@ -34,4 +34,26 @@ describe('embedded BSV testnet wallet', () => {
     expect(status).toMatchObject({connection:'ERROR',error:expect.stringMatching(/503/)})
     expect(status.error).not.toMatch(/password|damaged/i)
   })
+
+  it('exports authenticated recovery data and recovers an empty device after address confirmation', async () => {
+    const original = new EmbeddedTestnetWallet(storage(), (async()=>new Response('[]')) as typeof fetch)
+    const created = await original.create('wallet password 1234')
+    const backup = await original.exportBackup('backup password 9876')
+    expect(JSON.parse(backup)).not.toHaveProperty('wif')
+    const fresh = new EmbeddedTestnetWallet(storage(), (async()=>new Response('[]')) as typeof fetch)
+    const details = await fresh.inspectBackup(backup, 'backup password 9876')
+    expect(details.address).toBe(created.receivingAddress)
+    await expect(fresh.recoverBackup(backup, 'backup password 9876', {address:'wrong'})).rejects.toThrow('address exactly')
+    expect(await fresh.recoverBackup(backup, 'backup password 9876', {address:details.address})).toMatchObject({connection:'CONNECTED',receivingAddress:details.address})
+  })
+
+  it('rejects wrong backup passwords, tampering, and unconfirmed replacement', async () => {
+    const wallet = new EmbeddedTestnetWallet(storage(), (async()=>new Response('[]')) as typeof fetch)
+    await wallet.create('wallet password 1234')
+    const backup = await wallet.exportBackup('backup password 9876')
+    await expect(wallet.inspectBackup(backup, 'incorrect value 123')).rejects.toThrow('failed authentication')
+    const parsed = JSON.parse(backup); parsed.address = `${parsed.address.slice(0,-1)}${parsed.address.endsWith('a')?'b':'a'}`
+    await expect(wallet.inspectBackup(JSON.stringify(parsed), 'backup password 9876')).rejects.toThrow('failed authentication')
+    await expect(wallet.recoverBackup(backup, 'backup password 9876', {address:(await wallet.getStatus()).receivingAddress!})).rejects.toThrow('explicit confirmation')
+  })
 })

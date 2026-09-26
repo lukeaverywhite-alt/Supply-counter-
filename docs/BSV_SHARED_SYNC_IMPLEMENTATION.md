@@ -58,3 +58,7 @@ Deterministic tests demonstrate envelope encode/decode, mainnet rejection, incom
 No real testnet transaction was sent or retrieved in this environment. Live proof requires an adult/unit-admin controlled external BRC-100 testnet wallet, synthetic-data funding, a configured broadcaster, and an operated authenticated overlay/index. Record the real TXID and independent retrieval/confirmation result when that separately authorized test occurs; broadcast is not confirmation, and a supplied Merkle path remains unverified until checked against independently validated headers.
 
 Before NJROTC cadet data: complete privacy/legal and command access review; replace mock identity/shared secret with device credentials and signed role lifecycle; deploy enrollment, epoch-key distribution/rotation/recovery and revocation; deploy/monitor/back up relay and redundant index; finish calendar/alerts/identity domains; complete three-device fresh recovery and adversarial/reorg testing; and obtain an explicit decision accepting permanent encrypted public-chain storage. Previously authorized devices cannot be made to forget keys.
+
+## Wallet authorization boundary
+
+Wallet publication is narrowly scoped: it accepts an authorized, actor-signed encrypted event and returns success only for a valid broadcaster TXID. The requesting actor remains in the event/audit record. The wallet key is never copied to user records and never signs application events. Receiving clients independently validate actor signature, credential chain, revocation, organization, event ID, and base version.

@@ -20,7 +20,7 @@ export type TestnetWalletStatus = {
 }
 
 /** Wallet lifecycle/status boundary. It intentionally exposes no key-export operation. */
-export interface TestnetWalletStatusProvider { getStatus(): Promise<TestnetWalletStatus>; create?(password: string): Promise<TestnetWalletStatus>; unlock?(password: string): Promise<TestnetWalletStatus>; lock?(): void }
+export interface TestnetWalletStatusProvider { getStatus(): Promise<TestnetWalletStatus>; create?(password: string): Promise<TestnetWalletStatus>; unlock?(password: string): Promise<TestnetWalletStatus>; lock?(): void; exportBackup?(password: string): Promise<string>; inspectBackup?(serialized: string, password: string): Promise<{address:string;currentAddress?:string;rollbackWarning:boolean}>; recoverBackup?(serialized:string,password:string,confirmation:{address:string;replaceExisting?:boolean;currentWalletBackedUp?:boolean;allowRollback?:boolean}):Promise<TestnetWalletStatus> }
 
 /**
  * Connects A.R.G.U.S. to a user-controlled BRC-100 wallet (MetaNet Client,
