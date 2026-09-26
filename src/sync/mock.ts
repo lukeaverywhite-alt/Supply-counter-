@@ -1,6 +1,11 @@
 import type { SignedArgusEvent } from '../distributed/types'
 
-export class MockSyncProvider {
+export interface EventSyncProvider {
+  publish(event: SignedArgusEvent): Promise<unknown>
+  pull(): Promise<SignedArgusEvent[]>
+}
+
+export class MockSyncProvider implements EventSyncProvider {
   private events = new Map<string, SignedArgusEvent>()
   unavailable = false
   duplicateDelivery = false

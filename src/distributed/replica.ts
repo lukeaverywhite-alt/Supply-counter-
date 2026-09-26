@@ -3,7 +3,7 @@ import { canonicalize } from './canonical'
 import type { ArgusIdentityProvider } from '../identity/identity'
 import type { ArgusPermission, ConflictRecord, CountAssignment, CountSessionProjection, InventoryProjection, MissingIssueLine, SignedArgusEvent, SupplyTransactionLine, UnsignedArgusEvent } from './types'
 import type { ArgusRepository, RepositoryState } from '../storage/repository'
-import type { MockSyncProvider } from '../sync/mock'
+import type { EventSyncProvider } from '../sync/mock'
 import type { BundleVersionProjection, CadetProjection, StillNeededProjection } from './types'
 import { FACTORY_BUNDLES, validateBundle, validateCadet, validateRequirement } from '../stage3/domain'
 
@@ -15,7 +15,7 @@ export const MAX_COUNT_QUANTITY = 100_000
 export class ArgusReplica {
   online = true
   private syncing?: Promise<void>
-  constructor(readonly repository: ArgusRepository, private identity: ArgusIdentityProvider, private authorization: AuthorizationService, private provider: MockSyncProvider, readonly organizationId = 'argus-demo-organization') {}
+  constructor(readonly repository: ArgusRepository, private identity: ArgusIdentityProvider, private authorization: AuthorizationService, private provider: EventSyncProvider, readonly organizationId = 'argus-demo-organization') {}
   async initialize(items: Array<Pick<InventoryProjection, 'entityId' | 'name' | 'onHand' | 'version'> & Partial<Omit<InventoryProjection, 'entityId' | 'name' | 'onHand' | 'version' | 'appliedEventIds'>>> = []) {
     await this.repository.initialize()
     await this.repository.transaction(s => { if (!s.inventory.length) s.inventory = items.map(item => ({ category: 'Uncategorized', variant: 'No variant', niin: 'Not assigned', issued: 0, countIncrement: 1, active: true, ...item, appliedEventIds: [] })); for (const source of FACTORY_BUNDLES) if (!s.bundles.some(b => b.bundleId === source.bundleId)) { const version = structuredClone(source); version.lines = version.lines.map(line => ({ ...line, itemId: s.inventory.find(item => item.name === line.displayLabel)?.entityId })); s.bundles.push({ bundleId: version.bundleId, currentVersion: 1, versions: [version], appliedEventIds: [version.eventId] }) } })
@@ -275,7 +275,22 @@ export class ArgusReplica {
       try { await this.provider.publish(event); await this.repository.transaction(s => { s.outbox = s.outbox.filter(o => o.eventId !== event.eventId); const stored = s.events.find(e => e.event.eventId === event.eventId); if (stored) stored.syncStatus = 'SYNCHRONIZED' }) }
       catch (error) { await this.repository.transaction(s => { const out = s.outbox.find(o => o.eventId === event.eventId); if (out) { out.status = 'FAILED'; out.attempts++; out.lastError = error instanceof Error ? error.message : 'Sync failed' }; const stored = s.events.find(e => e.event.eventId === event.eventId); if (stored) stored.syncStatus = 'FAILED' }) }
     }
-    for (const event of await this.provider.pull()) await this.receive(event)
+    let pending = await this.provider.pull()
+    let progress = true
+    while (pending.length && progress) {
+      progress = false
+      const deferred: SignedArgusEvent[] = []
+      for (const event of pending) {
+        try { await this.receive(event); progress = true }
+        catch (error) {
+          const reason = error instanceof Error ? error.message : 'Remote event was rejected.'
+          if (/dependency is missing|projection is missing/i.test(reason)) deferred.push(event)
+          else await this.repository.transaction(state => { if (!state.quarantine.some(item => item.eventId === event.eventId && item.reason === reason)) state.quarantine.push({ eventId: event.eventId, reason, receivedAt: new Date().toISOString() }) })
+        }
+      }
+      pending = deferred
+    }
+    if (pending.length) await this.repository.transaction(state => { for (const event of pending) if (!state.quarantine.some(item => item.eventId === event.eventId)) state.quarantine.push({ eventId: event.eventId, reason: 'Dependency is not available yet; the event will be retried on the next synchronization.', receivedAt: new Date().toISOString() }) })
   }
   async snapshot() { return this.repository.snapshot() }
 }

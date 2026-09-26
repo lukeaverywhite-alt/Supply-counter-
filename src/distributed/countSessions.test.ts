@@ -73,4 +73,15 @@ describe('first-class shared count sessions', () => {
     expect(state.countSessions[0]).toMatchObject({ status: 'RECONCILED', totals: { 'shirt-m': 3 } })
     await expect(restarted.reconcileCountSession('fall')).rejects.toThrow(/not ready/)
   })
+
+  it('defers missing parents during reverse replay so a fresh authorized client reaches six', async () => {
+    const { replicas, provider, authorization, identities } = await clients()
+    await replicas[0].contributeCount('fall', 'bin-a', 3, '', { eventId: 'fresh-a' })
+    await replicas[1].contributeCount('fall', 'bin-b', 3, '', { eventId: 'fresh-b' })
+    provider.reorderDelivery = true
+    const fresh = new ArgusReplica(new MemoryRepository(), identities[0], authorization, provider, 'org-a')
+    await fresh.initialize([{ entityId: 'shirt-m', name: 'Shirt', onHand: 10, version: 0 }])
+    await fresh.sync()
+    expect((await fresh.snapshot()).countSessions[0].totals['shirt-m']).toBe(6)
+  })
 })
