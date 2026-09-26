@@ -2,13 +2,14 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { createRuntimeController } from './private-sync/runtime'
-import { EmbeddedTestnetWallet } from './blockchain/EmbeddedTestnetWallet'
+import { Brc100TestnetWalletProvider, UnconfiguredTestnetWalletStatusProvider } from './blockchain/ArgusWalletAdapter'
+import { resolveBlockchainMode } from './blockchain/config'
 import './styles.css'
 
 const controller = await createRuntimeController()
-// The embedded wallet is the resolved runtime implementation. Do not replace
-// it with the earlier external BRC-100 status-only provider during merges.
-const walletStatusProvider = new EmbeddedTestnetWallet()
+const walletStatusProvider = resolveBlockchainMode(import.meta.env.VITE_ARGUS_BLOCKCHAIN_MODE) === 'testnet'
+  ? new Brc100TestnetWalletProvider()
+  : new UnconfiguredTestnetWalletStatusProvider()
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App controller={controller} walletStatusProvider={walletStatusProvider} />

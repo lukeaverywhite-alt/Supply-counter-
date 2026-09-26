@@ -64,7 +64,7 @@ Authentication, normal-runtime encrypted synchronization, production roster impo
 **Current environment:** Development
 
 - **Supported:** local mock blockchain provider, deterministic audit hashing, mock signing/verification, retry and duplicate protection
-- **Implemented boundary:** the app creates a testnet-only wallet when `VITE_ARGUS_BLOCKCHAIN_MODE=testnet`, encrypts its private key locally with a wallet password, reports faucet-funded balance, and builds/signs/broadcasts one-satoshi encrypted-data transactions. Complete encrypted-event testnet outputs use that same BRC-100 `createAction` boundary; deterministic contract tests cover encoding, retry lookup, and mainnet rejection.
+- **Implemented boundary:** the browser connects to an installed BRC-100 wallet when `VITE_ARGUS_BLOCKCHAIN_MODE=testnet`, verifies that wallet is on testnet, derives a public testnet faucet address, and reads A.R.G.U.S.-labelled transaction history. Complete encrypted-event testnet outputs use that same BRC-100 `createAction` boundary; deterministic contract tests cover encoding, retry lookup, and mainnet rejection.
 - **Not yet demonstrated live:** no funded wallet/overlay/header verifier was supplied, so no real transaction or TXID is claimed
 - **Not enabled:** BSV mainnet; selecting it causes an explicit startup error
 - **Production funds:** never used
@@ -75,14 +75,12 @@ See [the shared-counting milestone](docs/SHARED_COUNTING_MILESTONE.md), [the BSV
 
 ### Connect and fund a testnet wallet
 
-The wallet is built into A.R.G.U.S.; no browser extension or external BRC-100 wallet is required.
+1. Install and unlock a BRC-100-compatible browser wallet and select **BSV testnet** in the wallet.
+2. Copy `.env.example` to `.env.local`, set `VITE_ARGUS_BLOCKCHAIN_MODE=testnet`, and restart Vite.
+3. Open **Settings → Open Testnet Wallet Status**, approve the wallet capability request, and copy the displayed **Public testnet faucet address**.
+4. Send only faucet testnet coins to that address. Never send mainnet BSV; the app rejects a mainnet wallet.
 
-1. Copy `.env.example` to `.env.local`, set `VITE_ARGUS_BLOCKCHAIN_MODE=testnet`, and restart Vite.
-2. Open **Settings → Open Testnet Wallet**, choose a unique wallet password of at least 12 characters, and create the wallet.
-3. Copy the displayed **Faucet address** and send only BSV testnet coins to it.
-4. Refresh the wallet to confirm its balance before publishing data. Never send mainnet BSV.
-
-The app stores only an AES-256-GCM encrypted private key; the password and plaintext key are memory-only. Back up the wallet before relying on it: clearing browser storage currently destroys it and any remaining faucet funds. The embedded wallet is the signing/spending authority. Future password authentication should issue per-user application credentials and encrypted synchronization grants, not become wallet custody: operational data already uses the repository/event/encrypted-relay boundaries described above. A faucet payment is not spendable until the testnet service reports its output; confirm the balance in the wallet before publishing a data transaction.
+The app never stores a seed phrase or private key. The wallet remains the signing/spending authority. Future password authentication should issue per-user application credentials and encrypted synchronization grants, not become wallet custody: operational data already uses the repository/event/encrypted-relay boundaries described above. A faucet payment is not automatically proof that an injected wallet has indexed the output; confirm the test balance in the wallet before publishing a data transaction.
 
 ## Stage 2 distributed proof
 
