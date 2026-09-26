@@ -27,6 +27,8 @@ npm run dev
 
 GitHub Pages hosts the A.R.G.U.S. client only. Shared organizational synchronization requires a separately deployed A.R.G.U.S. encrypted relay. Run `npm run relay:dev` for local development and see [relay deployment](docs/SYNC_RELAY_DEPLOYMENT.md); mock sync never leaves one device.
 
+Operational clients can compose `DistributedAppController` with `DurableEncryptedEventSyncProvider`, distinct enrolled Web Crypto identities, signed authority credentials, and organization epoch keys. The adapter durably prepares ciphertext before sending and reuses it after ambiguous failures. A deployed relay and explicit enrollment package are still required; the static site never invents credentials or silently falls back to shared plaintext.
+
 ## Checks
 
 ```bash
