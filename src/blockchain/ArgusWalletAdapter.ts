@@ -14,13 +14,13 @@ export interface ArgusWalletAdapter {
 export type WalletConnectionState = 'DISCONNECTED' | 'CONNECTED' | 'ERROR'
 export type WalletTransactionStatus = 'BROADCAST' | 'CONFIRMED' | 'PROOF_VERIFIED' | 'UNKNOWN'
 export type TestnetWalletStatus = {
-  network: 'TESTNET'; connection: WalletConnectionState; mode: 'LIVE' | 'MOCK' | 'UNCONFIGURED'
+  network: 'TESTNET'; connection: WalletConnectionState; mode: 'LIVE' | 'EMBEDDED' | 'MOCK' | 'UNCONFIGURED'
   receivingAddress?: string; balanceSatoshis?: number
-  recentTransactions: Array<{ transactionId: string; status: WalletTransactionStatus }>; error?: string
+  recentTransactions: Array<{ transactionId: string; status: WalletTransactionStatus }>; error?: string; requiresSetup?: boolean; requiresUnlock?: boolean
 }
 
-/** Read-only status boundary. It intentionally exposes no signing or key-export operation. */
-export interface TestnetWalletStatusProvider { getStatus(): Promise<TestnetWalletStatus> }
+/** Wallet lifecycle/status boundary. It intentionally exposes no key-export operation. */
+export interface TestnetWalletStatusProvider { getStatus(): Promise<TestnetWalletStatus>; create?(password: string): Promise<TestnetWalletStatus>; unlock?(password: string): Promise<TestnetWalletStatus>; lock?(): void }
 
 /**
  * Connects A.R.G.U.S. to a user-controlled BRC-100 wallet (MetaNet Client,
