@@ -5,6 +5,8 @@ import type { EventSyncProvider } from '../sync/mock'
 import { decryptEvent, encryptEvent } from './crypto'
 import type { KeyDistributionService } from './keys'
 import type { PrivateHistoryProvider } from './types'
+import { canonicalize } from '../distributed/canonical'
+import { parseEncryptedEnvelope } from './schema'
 
 /**
  * Adapts the encrypted relay protocol to the replica transport contract.
@@ -27,6 +29,7 @@ export class DurableEncryptedEventSyncProvider implements EventSyncProvider {
     if (event.organizationId !== this.organizationId) throw new Error('Cannot publish an event for another organization.')
     const snapshot = await this.repository.snapshot()
     let envelope = snapshot.privateSyncOutbox.find(item => item.providerId === this.providerId && item.eventId === event.eventId)?.envelope
+      ?? snapshot.privateSyncDeliveries.find(item => item.providerId === this.providerId && item.eventId === event.eventId)?.envelope
     if (!envelope) {
       const prepared = await encryptEvent(event, this.identity, this.keys)
       await this.repository.transaction(state => {
@@ -36,9 +39,21 @@ export class DurableEncryptedEventSyncProvider implements EventSyncProvider {
       })
     }
     if (!envelope) throw new Error('Encrypted event was not durably prepared.')
-    const acknowledgment = await this.provider.publish(envelope)
+    let acknowledgment
+    try {
+      acknowledgment = await this.provider.publish(envelope)
+    } catch (error) {
+      // The relay may have committed the envelope while its acknowledgement
+      // was lost. A verified lookup turns that ambiguous result into success;
+      // a different envelope is still a hard collision.
+      const remote = await this.provider.getByEventId(event.eventId).catch(() => undefined)
+      if (!remote || canonicalize(parseEncryptedEnvelope(remote)) !== canonicalize(envelope)) throw error
+    }
     if (acknowledgment && acknowledgment.accepted !== true) throw new Error('Encrypted relay did not durably acknowledge the event.')
-    await this.repository.transaction(state => { state.privateSyncOutbox = state.privateSyncOutbox.filter(item => item.providerId !== this.providerId || item.eventId !== event.eventId) })
+    await this.repository.transaction(state => {
+      state.privateSyncOutbox = state.privateSyncOutbox.filter(item => item.providerId !== this.providerId || item.eventId !== event.eventId)
+      if (!state.privateSyncDeliveries.some(item => item.providerId === this.providerId && item.eventId === event.eventId)) state.privateSyncDeliveries.push({ providerId: this.providerId, eventId: event.eventId, envelope: envelope! })
+    })
     return acknowledgment
   }
 
