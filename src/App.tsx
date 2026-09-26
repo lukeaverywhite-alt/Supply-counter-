@@ -23,6 +23,7 @@ export default function App({controller:supplied,settingsStorage:suppliedSetting
  const [selectedId,setSelectedId]=useState(''),[selectedCadetId,setSelectedCadetId]=useState(''),[count,setCount]=useState(0),[step,setStep]=useState(1),[countNote,setCountNote]=useState('')
  const [query,setQuery]=useState(''),[cadetQuery,setCadetQuery]=useState(''),[notice,setNotice]=useState(''),[history,setHistory]=useState<Array<{itemId:string;name:string;from:number;to:number}>>([])
  useEffect(()=>{let active=true;controller.initialize().then(p=>{if(!active)return;setProjection(p);if(p.inventory[0]){setSelectedId(p.inventory[0].entityId);setCount(p.inventory[0].onHand);setStep(p.inventory[0].countIncrement)}}).catch(e=>setNotice(e instanceof Error?e.message:'Local data could not be loaded.'));return()=>{active=false}},[controller])
+ useEffect(()=>controller.startAutoSync(setProjection),[controller])
  useEffect(()=>{settingsStorage.save(preferences);Object.assign(document.documentElement.dataset,{theme:preferences.theme,density:preferences.density,motion:preferences.motion,textSize:preferences.textSize})},[preferences,settingsStorage])
  useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),5000);return()=>clearTimeout(timer)},[notice])
  const selected=projection?.inventory.find(i=>i.entityId===selectedId)??projection?.inventory[0]

@@ -62,13 +62,14 @@ Authentication, normal-runtime encrypted synchronization, production roster impo
 **Current environment:** Development
 
 - **Supported:** local mock blockchain provider, deterministic audit hashing, mock signing/verification, retry and duplicate protection
-- **Not yet implemented:** real BSV testnet transactions (reserved for a separately verified Stage 2 adapter)
+- **Implemented boundary:** complete encrypted-event testnet outputs through an injected BRC-100 wallet plus overlay retrieval; deterministic contract tests cover encoding, retry lookup, and mainnet rejection
+- **Not yet demonstrated live:** no funded wallet/overlay/header verifier was supplied, so no real transaction or TXID is claimed
 - **Not enabled:** BSV mainnet; selecting it causes an explicit startup error
 - **Production funds:** never used
 
 The mock provider makes no network requests and every simulated transaction ID starts with `MOCK_TX_`. A.R.G.U.S. continues to use off-chain local application state for fast inventory and roster queries. Read-only actions do not create audit transactions.
 
-See [the BSV architecture](docs/BSV_ARCHITECTURE.md) and [security model](docs/SECURITY_MODEL.md) before changing network or signing behavior.
+See [the shared-counting milestone](docs/SHARED_COUNTING_MILESTONE.md), [the BSV architecture](docs/BSV_ARCHITECTURE.md), and [security model](docs/SECURITY_MODEL.md) before changing network or signing behavior.
 
 ## Stage 2 distributed proof
 
