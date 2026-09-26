@@ -7,6 +7,7 @@ import {
   REPLICA_STORE_NAME,
   REPOSITORY_SCHEMA_VERSION,
   migrateRepositoryState,
+  type RepositoryState,
 } from './repository'
 
 const originalIndexedDb = globalThis.indexedDB
