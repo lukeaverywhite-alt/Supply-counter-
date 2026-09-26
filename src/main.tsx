@@ -1,11 +1,13 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { createRuntimeController } from './private-sync/runtime'
 import './styles.css'
 
+const controller = await createRuntimeController()
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <App controller={controller} />
   </StrictMode>,
 )
 

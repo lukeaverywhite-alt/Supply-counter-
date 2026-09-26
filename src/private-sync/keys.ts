@@ -6,6 +6,28 @@ export interface KeyDistributionService {
   revoke(identity: string): void
 }
 
+/**
+ * Runtime relay enrollment for the current testnet pilot.  The high-entropy
+ * relay enrollment secret is also used as HKDF input so two independently
+ * enrolled browsers can decrypt the same history without copying IndexedDB.
+ * The secret is supplied at runtime and is never embedded in the Vite bundle.
+ */
+export class SharedSecretEpochKeyDistribution implements KeyDistributionService {
+  private readonly epoch = 'epoch-001'
+  constructor(private readonly organizationId: string, private readonly secret: () => string | Promise<string>) {}
+  currentEpoch() { return this.epoch }
+  async keyFor(_identity: string, epochId: string) {
+    if (epochId !== this.epoch) throw new Error(`Unsupported shared synchronization key epoch ${epochId}.`)
+    const secret = await this.secret()
+    if (secret.length < 16) throw new Error('Shared synchronization enrollment secret must contain at least 16 characters.')
+    const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), 'HKDF', false, ['deriveKey'])
+    return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode(this.organizationId), info: new TextEncoder().encode('ARGUS_PRIVATE_EVENT/v1') }, material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  }
+  async rotateEpoch(): Promise<string> { throw new Error('Shared-secret enrollment rotation must be performed by the relay administrator.') }
+  grantHistory() { /* possession of the enrollment secret grants testnet history */ }
+  revoke() { /* rotate the relay enrollment secret to revoke a testnet client */ }
+}
+
 // Development protocol proof. CryptoKey is non-extractable; production wrapping is delegated to a BRC-100 wallet adapter.
 export class MockEpochKeyDistribution implements KeyDistributionService {
   private epoch = 0
