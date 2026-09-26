@@ -75,6 +75,8 @@ See [the shared-counting milestone](docs/SHARED_COUNTING_MILESTONE.md), [the BSV
 
 ### Connect and fund a testnet wallet
 
+The wallet is built into A.R.G.U.S.; no browser extension or external BRC-100 wallet is required.
+
 1. Copy `.env.example` to `.env.local`, set `VITE_ARGUS_BLOCKCHAIN_MODE=testnet`, and restart Vite.
 2. Open **Settings → Open Testnet Wallet**, choose a unique wallet password of at least 12 characters, and create the wallet.
 3. Copy the displayed **Faucet address** and send only BSV testnet coins to it.
