@@ -37,10 +37,12 @@ describe('normal-runtime encrypted shared counting', () => {
     relay.publish=async envelope=>{await original(envelope);if(lose){lose=false;throw new Error('ack lost')}return undefined}
     const provider=new DurableEncryptedEventSyncProvider('relay',repository,relay,identity,keys,organizationId)
     const event={protocol:'ARGUS' as const,protocolVersion:1 as const,organizationId,eventVersion:1 as const,eventId:'event-retry',eventType:'COUNT_CONTRIBUTED' as const,entityId:'session',actorPublicIdentity:await identity.getPublicIdentity(),timestamp:'2026-09-26T00:00:00.000Z',payload:{assignmentId:'a',itemId:'i',quantity:3},signature:'placeholder'}
-    await expect(provider.publish(event)).rejects.toThrow('ack lost')
-    const prepared=(await repository.snapshot()).privateSyncOutbox[0].envelope
+    await expect(provider.publish(event)).resolves.toBeUndefined()
+    const prepared=await relay.getByEventId(event.eventId)
+    expect((await repository.snapshot()).privateSyncOutbox).toEqual([])
     await provider.publish(event)
     expect(await relay.getByEventId(event.eventId)).toEqual(prepared)
     expect((await repository.snapshot()).privateSyncOutbox).toEqual([])
+    expect((await repository.snapshot()).privateSyncDeliveries[0].envelope).toEqual(prepared)
   })
 })

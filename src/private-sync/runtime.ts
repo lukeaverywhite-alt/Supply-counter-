@@ -40,19 +40,26 @@ export async function createRuntimeController(storage: Pick<Storage, 'getItem'> 
   const repository = new IndexedDbRepository('argus-operational-v2')
   await repository.initialize()
   const current = await repository.snapshot()
-  const migrated = await Promise.all(current.events.map(async record => {
-    const prior: Partial<SignedArgusEvent> = { ...record.event }
-    delete prior.signature
-    const unsigned = { ...prior, organizationId: enrollment.organizationId }
-    return { ...record, event: { ...unsigned, signature: await identity.sign(canonicalize(unsigned)) } as SignedArgusEvent, syncStatus: 'QUEUED' as const }
-  }))
-  // Existing device-only events must be re-enveloped for the enrolled
-  // organization; projections are retained and event IDs remain idempotent.
-  await repository.transaction(state => {
-    state.events = migrated
-    state.outbox = migrated.map(record => ({ eventId: record.event.eventId, attempts: 0, status: 'QUEUED' }))
-    state.privateSyncOutbox = []
-  })
+  if (current.enrollmentMigration?.organizationId !== undefined && current.enrollmentMigration.organizationId !== enrollment.organizationId) {
+    throw new Error('This local repository is already bound to another organization. Export it and use a fresh browser profile for the new organization.')
+  }
+  if (!current.enrollmentMigration) {
+    const migrated = await Promise.all(current.events.map(async record => {
+      const prior: Partial<SignedArgusEvent> = { ...record.event }
+      delete prior.signature
+      const unsigned = { ...prior, organizationId: enrollment.organizationId }
+      return { ...record, event: { ...unsigned, signature: await identity.sign(canonicalize(unsigned)) } as SignedArgusEvent, syncStatus: 'QUEUED' as const }
+    }))
+    // This one-time compatibility import and its marker are atomic. Ordinary
+    // startup must never rewrite signed bytes or discard prepared ciphertext.
+    await repository.transaction(state => {
+      state.events = migrated
+      state.outbox = migrated.map(record => ({ eventId: record.event.eventId, attempts: 0, status: 'QUEUED' }))
+      state.privateSyncOutbox = []
+      state.privateSyncDeliveries = []
+      state.enrollmentMigration = { version: 1, organizationId: enrollment.organizationId, completedAt: new Date().toISOString(), importedEventIds: migrated.map(record => record.event.eventId) }
+    })
+  }
   const remote = new RemotePrivateHistoryProvider({ endpoint: enrollment.endpoint, organizationId: enrollment.organizationId, accessToken: () => enrollment.accessToken })
   const keys = new SharedSecretEpochKeyDistribution(enrollment.organizationId, () => enrollment.accessToken)
   const provider = new DurableEncryptedEventSyncProvider('encrypted-relay-v1', repository, remote, identity, keys, enrollment.organizationId)
