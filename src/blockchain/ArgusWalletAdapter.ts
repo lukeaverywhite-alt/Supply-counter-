@@ -15,12 +15,12 @@ export type WalletConnectionState = 'DISCONNECTED' | 'CONNECTED' | 'ERROR'
 export type WalletTransactionStatus = 'BROADCAST' | 'CONFIRMED' | 'PROOF_VERIFIED' | 'UNKNOWN'
 export type TestnetWalletStatus = {
   network: 'TESTNET'; connection: WalletConnectionState; mode: 'LIVE' | 'EMBEDDED' | 'MOCK' | 'UNCONFIGURED'
-  receivingAddress?: string; balanceSatoshis?: number
-  recentTransactions: Array<{ transactionId: string; status: WalletTransactionStatus }>; error?: string; requiresSetup?: boolean; requiresUnlock?: boolean
+  receivingAddress?: string; balanceSatoshis?: number; unconfirmedBalanceSatoshis?: number
+  recentTransactions: Array<{ transactionId: string; status: WalletTransactionStatus; timestamp?: string }>; error?: string; requiresSetup?: boolean; requiresUnlock?: boolean
 }
 
 /** Wallet lifecycle/status boundary. It intentionally exposes no key-export operation. */
-export interface TestnetWalletStatusProvider { getStatus(): Promise<TestnetWalletStatus>; create?(password: string): Promise<TestnetWalletStatus>; unlock?(password: string): Promise<TestnetWalletStatus>; lock?(): void }
+export interface TestnetWalletStatusProvider { getStatus(): Promise<TestnetWalletStatus>; create?(password: string): Promise<TestnetWalletStatus>; unlock?(password: string): Promise<TestnetWalletStatus>; lock?(): void; exportBackup?(password: string): Promise<string>; inspectBackup?(serialized: string, password: string): Promise<{address:string;currentAddress?:string;rollbackWarning:boolean}>; recoverBackup?(serialized:string,password:string,confirmation:{address:string;replaceExisting?:boolean;currentWalletBackedUp?:boolean;allowRollback?:boolean}):Promise<TestnetWalletStatus> }
 
 /**
  * Connects A.R.G.U.S. to a user-controlled BRC-100 wallet (MetaNet Client,
@@ -29,7 +29,7 @@ export interface TestnetWalletStatusProvider { getStatus(): Promise<TestnetWalle
  * this boundary.
  */
 export class Brc100TestnetWalletProvider implements TestnetWalletStatusProvider {
-  constructor(private readonly wallet: Pick<WalletInterface, 'getNetwork'|'getPublicKey'|'listActions'|'isAuthenticated'> = new WalletClient('auto')) {}
+  constructor(private readonly wallet: Pick<WalletInterface, 'getNetwork'|'getPublicKey'|'listActions'|'isAuthenticated'|'createAction'> = new WalletClient('auto')) {}
 
   getWallet() { return this.wallet }
 

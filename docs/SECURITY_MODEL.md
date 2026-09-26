@@ -1,5 +1,7 @@
 # A.R.G.U.S. security and privacy model
 
+The normative three-key architecture and complete threat register are in [IDENTITY_MODEL.md](IDENTITY_MODEL.md) and [THREAT_MODEL.md](THREAT_MODEL.md). Organization authority, per-user signing, and the testnet wallet are cryptographically and operationally separate; no universal decryption or impersonation key is permitted.
+
 ## Separate responsibilities
 
 - **Authentication** identifies the current user.

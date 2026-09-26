@@ -15,3 +15,9 @@ Stage 2.5 adds `ArgusWalletAdapter`, an explicitly non-operational testnet adapt
 7. record which broadcaster, proof source and header source remain remotely trusted.
 
 BRC-62 BEEF can package transaction ancestry and BRC-74 MerklePath/BUMP represents inclusion paths. Local path calculation is not full SPV without a trusted/validated header chain. No manually invoked spending workflow was added because there are no secrets or wallet endpoint to supply it safely.
+
+## Operational wallet runtime
+
+`createWalletRuntime` is the sole composition boundary. Its exact wallet object is supplied to status, balance/history, lock/unlock, backup/recovery, and encrypted audit publication; a second status-only adapter is prohibited. Supported modes are `embedded-testnet`, `external-brc100-testnet`, and `unconfigured`. `mock-development` is unmistakably development-only and fails in production. Missing configuration never falls back to a mock. Every provider checks testnet and mainnet has no adapter.
+
+The embedded path uses `@bsv/sdk` P2PKH serialization/signing and Whatsonchain testnet UTXO/broadcast APIs. Success requires a real 64-hex-character TXID. Network failures preserve the vault and known address.

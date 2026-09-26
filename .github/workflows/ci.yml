@@ -26,7 +26,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # CI must never select a network that can broadcast transactions.
-      VITE_ARGUS_BLOCKCHAIN_MODE: mock
+      # Use the explicit fail-closed mode accepted by the runtime. The former
+      # `mock` value was removed and caused every App render in CI to throw.
+      VITE_ARGUS_BLOCKCHAIN_MODE: unconfigured
 
     steps:
       - name: Checkout repository
