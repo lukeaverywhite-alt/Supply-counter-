@@ -29,7 +29,7 @@ export type AuthorityRevocation = {
   signature: string
 }
 
-export type DistributedEventType = 'INVENTORY_ITEM_CREATED' | 'INVENTORY_ITEM_UPDATED' | 'ITEM_ISSUED' | 'ITEM_RETURNED' | 'INVENTORY_COUNT_SUBMITTED' | 'AUTHORITY_GRANTED' | 'AUTHORITY_REVOKED' | 'ROLE_CHANGED' | 'CONFLICT_DETECTED' | 'CONFLICT_RESOLVED' | 'RECORD_CORRECTED' | 'CADET_CREATED' | 'CADET_UPDATED' | 'BUNDLE_CREATED' | 'BUNDLE_UPDATED' | 'BUNDLE_DEACTIVATED' | 'STILL_NEEDED_ADDED' | 'STILL_NEEDED_UPDATED' | 'STILL_NEEDED_CANCELLED' | 'STILL_NEEDED_FULFILLED'
+export type DistributedEventType = 'INVENTORY_ITEM_CREATED' | 'INVENTORY_ITEM_UPDATED' | 'ITEM_ISSUED' | 'ITEM_RETURNED' | 'INVENTORY_COUNT_SUBMITTED' | 'COUNT_SESSION_CREATED' | 'COUNT_CONTRIBUTED' | 'COUNT_CORRECTED' | 'COUNT_RECOUNTED' | 'COUNT_SESSION_SUBMITTED' | 'COUNT_SESSION_RECONCILED' | 'COUNT_SESSION_CANCELLED' | 'AUTHORITY_GRANTED' | 'AUTHORITY_REVOKED' | 'ROLE_CHANGED' | 'CONFLICT_DETECTED' | 'CONFLICT_RESOLVED' | 'RECORD_CORRECTED' | 'CADET_CREATED' | 'CADET_UPDATED' | 'BUNDLE_CREATED' | 'BUNDLE_UPDATED' | 'BUNDLE_DEACTIVATED' | 'STILL_NEEDED_ADDED' | 'STILL_NEEDED_UPDATED' | 'STILL_NEEDED_CANCELLED' | 'STILL_NEEDED_FULFILLED'
 export type LocalSyncStatus = 'LOCAL' | 'QUEUED' | 'SYNCING' | 'SYNCHRONIZED' | 'CONFLICT' | 'FAILED'
 
 export type UnsignedArgusEvent = {
@@ -53,6 +53,24 @@ export type OutboxRecord = { eventId: string; attempts: number; status: 'QUEUED'
 /** One projection represents exactly one stock keeping variant. */
 export type InventoryProjection = { entityId: string; name: string; category: string; variant: string; niin: string; onHand: number; issued: number; reorderAt?: number; countIncrement: number; active: boolean; version: number; appliedEventIds: string[] }
 export type ConflictRecord = { id: string; entityId: string; eventIds: string[]; status: 'OPEN' | 'RESOLVED'; reason: string; resolutionEventId?: string; transactionId?: string; inventoryItemIds?: string[]; cadetId?: string }
+
+export type CountSessionStatus = 'DRAFT' | 'ACTIVE' | 'SUBMITTED' | 'RECONCILED' | 'CANCELLED'
+export type CountAssignment = { assignmentId: string; itemId: string; scope: string; assignedTo?: string }
+export type CountObservation = { eventId: string; itemId: string; assignmentId: string; actorPublicIdentity: string; quantity: number; effectiveQuantity: number; status: 'ACCEPTED' | 'SUPERSEDED' | 'CORRECTED' | 'LATE'; note?: string }
+export type CountSessionProjection = {
+  sessionId: string
+  scope: string
+  status: CountSessionStatus
+  baseline: Record<string, { quantity: number; inventoryVersion: number }>
+  assignments: CountAssignment[]
+  participants: string[]
+  observations: CountObservation[]
+  totals: Record<string, number>
+  acceptedEventIds?: string[]
+  lateEventIds: string[]
+  reconciledEventId?: string
+  appliedEventIds: string[]
+}
 
 export type NsLevel = 'NS1' | 'NS2' | 'NS3' | 'NS4'
 export type CadetGender = 'Male' | 'Female'

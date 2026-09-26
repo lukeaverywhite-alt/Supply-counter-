@@ -1,16 +1,16 @@
-import type { BundleProjection, CadetProjection, ConflictRecord, InventoryProjection, OutboxRecord, StillNeededProjection, StoredEvent, SupplyTransaction } from '../distributed/types'
+import type { BundleProjection, CadetProjection, ConflictRecord, CountSessionProjection, InventoryProjection, OutboxRecord, StillNeededProjection, StoredEvent, SupplyTransaction } from '../distributed/types'
 import type { BlockchainAuditJob, UtxoReservation } from '../blockchain/BlockchainJobTypes'
 import { assertRepositoryInvariants } from '../integrity'
 import type { EncryptedArgusEnvelope } from '../private-sync/types'
 
-export const REPOSITORY_SCHEMA_VERSION = 8
+export const REPOSITORY_SCHEMA_VERSION = 9
 export const INDEXED_DB_VERSION = 4
 export const REPLICA_STORE_NAME = 'replica'
 export const REPLICA_STATE_KEY = 'state'
 export type RemoteSyncMetadata = { providerId: string; cursor?: string; lastAttemptAt?: string; lastSuccessAt?: string; lastError?: string; state: 'DISCONNECTED'|'CONNECTING'|'SYNCHRONIZING'|'SYNCHRONIZED'|'DEGRADED'|'FAILED' }
 export type QuarantinedEnvelope = { eventId: string; reason: string; receivedAt: string }
 export type PrivateSyncOutboxRecord = { providerId: string; eventId: string; envelope: EncryptedArgusEnvelope }
-export type RepositoryState = { schemaVersion: number; events: StoredEvent[]; outbox: OutboxRecord[]; privateSyncOutbox: PrivateSyncOutboxRecord[]; auditJobs: BlockchainAuditJob[]; utxos: UtxoReservation[]; inventory: InventoryProjection[]; cadets: CadetProjection[]; bundles: BundleProjection[]; stillNeeded: StillNeededProjection[]; transactions: SupplyTransaction[]; conflicts: ConflictRecord[]; remoteSync: RemoteSyncMetadata[]; quarantine: QuarantinedEnvelope[] }
+export type RepositoryState = { schemaVersion: number; events: StoredEvent[]; outbox: OutboxRecord[]; privateSyncOutbox: PrivateSyncOutboxRecord[]; auditJobs: BlockchainAuditJob[]; utxos: UtxoReservation[]; inventory: InventoryProjection[]; countSessions: CountSessionProjection[]; cadets: CadetProjection[]; bundles: BundleProjection[]; stillNeeded: StillNeededProjection[]; transactions: SupplyTransaction[]; conflicts: ConflictRecord[]; remoteSync: RemoteSyncMetadata[]; quarantine: QuarantinedEnvelope[] }
 export interface ArgusRepository {
   initialize(): Promise<void>
   snapshot(): Promise<RepositoryState>
@@ -18,13 +18,13 @@ export interface ArgusRepository {
   transaction(change: (draft: RepositoryState) => void): Promise<void>
 }
 
-const empty = (): RepositoryState => ({ schemaVersion: REPOSITORY_SCHEMA_VERSION, events: [], outbox: [], privateSyncOutbox: [], auditJobs: [], utxos: [], inventory: [], cadets: [], bundles: [], stillNeeded: [], transactions: [], conflicts: [], remoteSync: [], quarantine: [] })
+const empty = (): RepositoryState => ({ schemaVersion: REPOSITORY_SCHEMA_VERSION, events: [], outbox: [], privateSyncOutbox: [], auditJobs: [], utxos: [], inventory: [], countSessions: [], cadets: [], bundles: [], stillNeeded: [], transactions: [], conflicts: [], remoteSync: [], quarantine: [] })
 export function migrateRepositoryState(value: unknown): RepositoryState {
   if (!value || typeof value !== 'object') throw new Error('Unreadable A.R.G.U.S. repository; source was preserved.')
   const source = value as Partial<RepositoryState>
   if (source.schemaVersion !== undefined && source.schemaVersion > REPOSITORY_SCHEMA_VERSION) throw new Error('Unsupported future repository schema; source was preserved.')
   if (!Array.isArray(source.events) || !Array.isArray(source.outbox) || !Array.isArray(source.inventory) || !Array.isArray(source.conflicts)) throw new Error('Malformed A.R.G.U.S. repository; source was preserved.')
-  return { schemaVersion: REPOSITORY_SCHEMA_VERSION, events: source.events.map(record => ({ ...record, auditStatus: record.auditStatus ?? 'PENDING' })), outbox: source.outbox, privateSyncOutbox: source.privateSyncOutbox ?? [], auditJobs: source.auditJobs ?? [], utxos: source.utxos ?? [], inventory: source.inventory.map(item => ({ ...item, category: item.category ?? 'Uncategorized', variant: item.variant ?? 'No variant', niin: item.niin ?? 'Not assigned', issued: item.issued ?? 0, countIncrement: item.countIncrement ?? 1, active: item.active ?? true })), cadets: (source.cadets ?? []).map(cadet => ({ ...cadet, currentProperty: cadet.currentProperty.map((raw, index) => { const property = raw as typeof raw & { size?: string; variant?: string; propertyId?: string; issueEventId?: string; issueTransactionId?: string }, legacyBase = `legacy:${cadet.cadetId}:${index}`; return { ...property, variant: property.variant ?? property.size ?? 'No variant', propertyId: property.propertyId ?? `${legacyBase}:property`, issueEventId: property.issueEventId ?? `${legacyBase}:event`, issueTransactionId: property.issueTransactionId ?? `${legacyBase}:transaction` } }) })), bundles: source.bundles ?? [], stillNeeded: source.stillNeeded ?? [], transactions: source.transactions ?? [], conflicts: source.conflicts, remoteSync: source.remoteSync ?? [], quarantine: source.quarantine ?? [] }
+  return { schemaVersion: REPOSITORY_SCHEMA_VERSION, events: source.events.map(record => ({ ...record, auditStatus: record.auditStatus ?? 'PENDING' })), outbox: source.outbox, privateSyncOutbox: source.privateSyncOutbox ?? [], auditJobs: source.auditJobs ?? [], utxos: source.utxos ?? [], inventory: source.inventory.map(item => ({ ...item, category: item.category ?? 'Uncategorized', variant: item.variant ?? 'No variant', niin: item.niin ?? 'Not assigned', issued: item.issued ?? 0, countIncrement: item.countIncrement ?? 1, active: item.active ?? true })), countSessions: source.countSessions ?? [], cadets: (source.cadets ?? []).map(cadet => ({ ...cadet, currentProperty: cadet.currentProperty.map((raw, index) => { const property = raw as typeof raw & { size?: string; variant?: string; propertyId?: string; issueEventId?: string; issueTransactionId?: string }, legacyBase = `legacy:${cadet.cadetId}:${index}`; return { ...property, variant: property.variant ?? property.size ?? 'No variant', propertyId: property.propertyId ?? `${legacyBase}:property`, issueEventId: property.issueEventId ?? `${legacyBase}:event`, issueTransactionId: property.issueTransactionId ?? `${legacyBase}:transaction` } }) })), bundles: source.bundles ?? [], stillNeeded: source.stillNeeded ?? [], transactions: source.transactions ?? [], conflicts: source.conflicts, remoteSync: source.remoteSync ?? [], quarantine: source.quarantine ?? [] }
 }
 export class MemoryRepository implements ArgusRepository {
   private state = empty()
