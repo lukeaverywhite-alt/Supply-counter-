@@ -10,6 +10,27 @@ export interface ArgusWalletAdapter {
   createTestnetAuditTransaction(commitment: PublicAuditCommitmentV1): Promise<TestnetAuditResult>
 }
 
+export type WalletConnectionState = 'DISCONNECTED' | 'CONNECTED' | 'ERROR'
+export type WalletTransactionStatus = 'BROADCAST' | 'CONFIRMED' | 'PROOF_VERIFIED' | 'UNKNOWN'
+export type TestnetWalletStatus = {
+  network: 'TESTNET'; connection: WalletConnectionState; mode: 'LIVE' | 'MOCK' | 'UNCONFIGURED'
+  receivingAddress?: string; balanceSatoshis?: number
+  recentTransactions: Array<{ transactionId: string; status: WalletTransactionStatus }>; error?: string
+}
+
+/** Read-only status boundary. It intentionally exposes no signing or key-export operation. */
+export interface TestnetWalletStatusProvider { getStatus(): Promise<TestnetWalletStatus> }
+
+export class UnconfiguredTestnetWalletStatusProvider implements TestnetWalletStatusProvider {
+  async getStatus(): Promise<TestnetWalletStatus> { return { network: 'TESTNET', connection: 'DISCONNECTED', mode: 'UNCONFIGURED', recentTransactions: [] } }
+}
+
+/** Deterministic UI/test fixture. Never select this provider for publication. */
+export class MockTestnetWalletStatusProvider implements TestnetWalletStatusProvider {
+  constructor(private readonly status: Partial<Omit<TestnetWalletStatus, 'network'|'mode'>> = {}) {}
+  async getStatus(): Promise<TestnetWalletStatus> { return { network: 'TESTNET', connection: 'CONNECTED', mode: 'MOCK', receivingAddress: 'mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn', balanceSatoshis: 125_000, recentTransactions: [], ...this.status } }
+}
+
 // Deliberately non-operational until an externally controlled, funded BRC-100 test wallet is supplied.
 export class UnconfiguredTestnetWalletAdapter implements ArgusWalletAdapter {
   async getPublicIdentity(): Promise<string> { throw new Error('External BRC-100 TESTNET wallet is not configured.') }

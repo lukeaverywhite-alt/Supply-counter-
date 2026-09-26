@@ -52,8 +52,13 @@ export class EncryptedEventTestnetAdapter {
     if (parsed.organizationId !== this.organizationId) throw new Error('Cannot publish an event for another organization.')
     // Resolving the stable event ID before funding another action makes an
     // ambiguous wallet/broadcast timeout safe to retry.
-    const known = await this.overlay.event(parsed.eventId).catch(() => undefined)
-    if (known) return { transactionId: known.transactionId, duplicate: true, state: known.blockHeight === undefined ? 'BROADCAST' : 'CONFIRMED' as const }
+    // Index failure is uncertain publication state, not evidence that spending again is safe.
+    const known = await this.overlay.event(parsed.eventId)
+    if (known) {
+      const indexed = decodeEventOutput(known.lockingScript)
+      if (canonicalize(indexed) !== canonicalize(parsed)) throw new Error('Indexed event ID collision: ciphertext envelope bytes differ.')
+      return { transactionId: known.transactionId, duplicate: true, state: known.blockHeight === undefined ? 'BROADCAST' : 'CONFIRMED' as const }
+    }
     const result = await this.wallet.createAction({ description: 'Publish encrypted ARGUS event', outputs: [{ lockingScript: encodeEventOutput(parsed), satoshis: 1, outputDescription: 'Encrypted ARGUS event record', tags: [`argus-org-${await sha256(this.organizationId)}`, `argus-event-${parsed.eventId}`] }], labels: ['argus-encrypted-history'], options: { acceptDelayedBroadcast: false, returnTXIDOnly: false, randomizeOutputs: false } })
     if (!result.txid || !/^[0-9a-f]{64}$/i.test(result.txid)) throw new Error('Testnet wallet did not durably acknowledge a transaction ID; query before retrying.')
     return { transactionId: result.txid, duplicate: false, state: 'BROADCAST' as const, preparedTransaction: result.tx ? [...result.tx] : undefined }

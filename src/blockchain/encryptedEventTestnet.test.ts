@@ -38,4 +38,15 @@ describe('encrypted BSV testnet event adapter', () => {
     const testnet={...wallet,getNetwork:async()=>({network:'testnet' as const})}
     expect((await new EncryptedEventTestnetAdapter(testnet,overlay,'org-a').retrieve()).complete).toBe(false)
   })
+  it('does not interpret an unavailable index as permission to publish again', async () => {
+    const encrypted=await envelope(), wallet:Brc100TestnetWallet={getNetwork:async()=>({network:'testnet'}),createAction:async()=>({txid:'a'.repeat(64)})}
+    const overlay:ArgusOverlayClient={event:async()=>{throw new Error('index timed out')},history:async()=>({records:[],complete:false})}
+    await expect(new EncryptedEventTestnetAdapter(wallet,overlay,'org-a').publish(encrypted)).rejects.toThrow('index timed out')
+  })
+  it('rejects an event-ID collision whose indexed envelope differs', async () => {
+    const encrypted=await envelope(), changed={...encrypted,ciphertext:encrypted.ciphertext.replace(/.$/,'A')}
+    const wallet:Brc100TestnetWallet={getNetwork:async()=>({network:'testnet'}),createAction:async()=>({txid:'a'.repeat(64)})}
+    const overlay:ArgusOverlayClient={event:async()=>({transactionId:'b'.repeat(64),lockingScript:encodeEventOutput(changed)}),history:async()=>({records:[],complete:true})}
+    await expect(new EncryptedEventTestnetAdapter(wallet,overlay,'org-a').publish(encrypted)).rejects.toThrow(/collision/)
+  })
 })
