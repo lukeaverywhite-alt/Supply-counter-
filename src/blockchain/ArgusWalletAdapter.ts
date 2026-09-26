@@ -18,7 +18,7 @@ export type TestnetWalletStatus = {
   recentTransactions: Array<{ transactionId: string; status: WalletTransactionStatus }>; error?: string; requiresSetup?: boolean; requiresUnlock?: boolean
 }
 
-/** Read-only status boundary. It intentionally exposes no signing or key-export operation. */
+/** Wallet lifecycle/status boundary. It intentionally exposes no key-export operation. */
 export interface TestnetWalletStatusProvider { getStatus(): Promise<TestnetWalletStatus>; create?(password: string): Promise<TestnetWalletStatus>; unlock?(password: string): Promise<TestnetWalletStatus>; lock?(): void }
 
 export class UnconfiguredTestnetWalletStatusProvider implements TestnetWalletStatusProvider {

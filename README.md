@@ -80,7 +80,7 @@ See [the shared-counting milestone](docs/SHARED_COUNTING_MILESTONE.md), [the BSV
 3. Copy the displayed **Faucet address** and send only BSV testnet coins to it.
 4. Refresh the wallet to confirm its balance before publishing data. Never send mainnet BSV.
 
-The app stores only an AES-256-GCM encrypted private key; the password and plaintext key are memory-only. Back up the wallet before relying on it: clearing browser storage currently destroys it and any remaining faucet funds. The embedded wallet is the signing/spending authority. Future password authentication should issue per-user application credentials and encrypted synchronization grants, not become wallet custody: operational data already uses the repository/event/encrypted-relay boundaries described above. A faucet payment is not automatically proof that an injected wallet has indexed the output; confirm the test balance in the wallet before publishing a data transaction.
+The app stores only an AES-256-GCM encrypted private key; the password and plaintext key are memory-only. Back up the wallet before relying on it: clearing browser storage currently destroys it and any remaining faucet funds. The embedded wallet is the signing/spending authority. Future password authentication should issue per-user application credentials and encrypted synchronization grants, not become wallet custody: operational data already uses the repository/event/encrypted-relay boundaries described above. A faucet payment is not spendable until the testnet service reports its output; confirm the balance in the wallet before publishing a data transaction.
 
 ## Stage 2 distributed proof
 

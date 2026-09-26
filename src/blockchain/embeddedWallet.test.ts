@@ -23,4 +23,15 @@ describe('embedded BSV testnet wallet', () => {
     await expect(wallet.create('short')).rejects.toThrow(/12 characters/)
     await expect(wallet.createAction({outputs:[{lockingScript:'006a',satoshis:2}]})).rejects.toThrow(/one-satoshi/)
   })
+
+  it('keeps a successfully decrypted wallet unlocked when the balance service is unavailable', async () => {
+    let online = true
+    const fetcher = async()=>online ? new Response('[]') : new Response('unavailable',{status:503})
+    const wallet = new EmbeddedTestnetWallet(storage(),fetcher as typeof fetch)
+    await wallet.create('correct horse battery staple')
+    wallet.lock(); online = false
+    const status = await wallet.unlock('correct horse battery staple')
+    expect(status).toMatchObject({connection:'ERROR',error:expect.stringMatching(/503/)})
+    expect(status.error).not.toMatch(/password|damaged/i)
+  })
 })

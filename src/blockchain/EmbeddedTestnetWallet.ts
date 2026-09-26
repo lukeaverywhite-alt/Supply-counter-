@@ -5,7 +5,7 @@ const STORAGE_KEY = 'argus:testnet-wallet:v1'
 const API = 'https://api.whatsonchain.com/v1/bsv/test'
 const encoder = new TextEncoder()
 
-type Vault = { version: 1; salt: string; iv: string; ciphertext: string; address: string; createdAt: string }
+type Vault = { version: 1; salt: string; iv: string; ciphertext: string; address: string; createdAt: string; recentTransactions?: TestnetWalletStatus['recentTransactions'] }
 type Utxo = { tx_hash: string; tx_pos: number; value: number; height?: number }
 
 const bytesToBase64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes))
@@ -19,7 +19,6 @@ async function passwordKey(password: string, salt: Uint8Array, usage: KeyUsage[]
 /** An app-owned, testnet-only wallet. Its key is encrypted at rest and held in memory only while unlocked. */
 export class EmbeddedTestnetWallet implements TestnetWalletStatusProvider {
   private key?: PrivateKey
-  private recentTransactions: TestnetWalletStatus['recentTransactions'] = []
   private operation?: Promise<unknown>
 
   constructor(private readonly storage: Pick<Storage, 'getItem'|'setItem'> = localStorage, private readonly fetcher: typeof fetch = fetch) {}
@@ -41,7 +40,7 @@ export class EmbeddedTestnetWallet implements TestnetWalletStatusProvider {
     const privateKey = PrivateKey.fromRandom(), salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12))
     const key = await passwordKey(password, salt, ['encrypt'])
     const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoder.encode(privateKey.toWif([0xef])))
-    const vault: Vault = { version: 1, salt: bytesToBase64(salt), iv: bytesToBase64(iv), ciphertext: bytesToBase64(new Uint8Array(ciphertext)), address: privateKey.toAddress('testnet'), createdAt: new Date().toISOString() }
+    const vault: Vault = { version: 1, salt: bytesToBase64(salt), iv: bytesToBase64(iv), ciphertext: bytesToBase64(new Uint8Array(ciphertext)), address: privateKey.toAddress('testnet'), createdAt: new Date().toISOString(), recentTransactions: [] }
     this.storage.setItem(STORAGE_KEY, JSON.stringify(vault))
     this.key = privateKey
     return this.getStatus()
@@ -49,14 +48,17 @@ export class EmbeddedTestnetWallet implements TestnetWalletStatusProvider {
 
   async unlock(password: string) {
     const vault = this.readVault()
+    let privateKey: PrivateKey
     try {
       const key = await passwordKey(password, base64ToBytes(vault.salt), ['decrypt'])
       const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: base64ToBytes(vault.iv) }, key, base64ToBytes(vault.ciphertext))
-      const privateKey = PrivateKey.fromWif(new TextDecoder().decode(plaintext))
+      privateKey = PrivateKey.fromWif(new TextDecoder().decode(plaintext))
       if (privateKey.toAddress('testnet') !== vault.address) throw new Error('Wallet address mismatch.')
-      this.key = privateKey
-      return this.getStatus()
     } catch { throw new Error('The wallet password is incorrect or the encrypted wallet is damaged.') }
+    // Network status is intentionally outside the decrypt catch: an outage must
+    // never be misreported as a wrong password or damaged key vault.
+    this.key = privateKey
+    return this.getStatus()
   }
 
   lock() { this.key = undefined }
@@ -64,12 +66,13 @@ export class EmbeddedTestnetWallet implements TestnetWalletStatusProvider {
   async getStatus(): Promise<TestnetWalletStatus> {
     if (!this.isCreated()) return { network: 'TESTNET', connection: 'DISCONNECTED', mode: 'EMBEDDED', recentTransactions: [], requiresSetup: true }
     const vault = this.readVault()
-    if (!this.key) return { network: 'TESTNET', connection: 'DISCONNECTED', mode: 'EMBEDDED', receivingAddress: vault.address, recentTransactions: this.recentTransactions, requiresUnlock: true }
+    const recentTransactions = vault.recentTransactions ?? []
+    if (!this.key) return { network: 'TESTNET', connection: 'DISCONNECTED', mode: 'EMBEDDED', receivingAddress: vault.address, recentTransactions, requiresUnlock: true }
     try {
       const utxos = await this.utxos(vault.address)
-      return { network: 'TESTNET', connection: 'CONNECTED', mode: 'EMBEDDED', receivingAddress: vault.address, balanceSatoshis: utxos.reduce((sum, output) => sum + output.value, 0), recentTransactions: this.recentTransactions }
+      return { network: 'TESTNET', connection: 'CONNECTED', mode: 'EMBEDDED', receivingAddress: vault.address, balanceSatoshis: utxos.reduce((sum, output) => sum + output.value, 0), recentTransactions }
     } catch (error) {
-      return { network: 'TESTNET', connection: 'ERROR', mode: 'EMBEDDED', receivingAddress: vault.address, recentTransactions: this.recentTransactions, error: error instanceof Error ? error.message : 'Could not reach the BSV testnet service.' }
+      return { network: 'TESTNET', connection: 'ERROR', mode: 'EMBEDDED', receivingAddress: vault.address, recentTransactions, error: error instanceof Error ? error.message : 'Could not reach the BSV testnet service.' }
     }
   }
 
@@ -101,7 +104,9 @@ export class EmbeddedTestnetWallet implements TestnetWalletStatusProvider {
     const body = await response.json() as string | { txid?: string }
     const transactionId = typeof body === 'string' ? body : body.txid
     if (!transactionId || !/^[0-9a-f]{64}$/i.test(transactionId)) throw new Error('Broadcaster did not return a valid transaction ID.')
-    this.recentTransactions = [{ transactionId, status: 'BROADCAST' as const }, ...this.recentTransactions].slice(0, 10)
+    const vault = this.readVault()
+    vault.recentTransactions = [{ transactionId, status: 'BROADCAST' as const }, ...(vault.recentTransactions ?? []).filter(item => item.transactionId !== transactionId)].slice(0, 10)
+    this.storage.setItem(STORAGE_KEY, JSON.stringify(vault))
     return { transactionId, tx: transaction.toBinary() }
   }
 
@@ -116,8 +121,10 @@ export class EmbeddedTestnetWallet implements TestnetWalletStatusProvider {
   private readVault() {
     const raw = this.storage.getItem(STORAGE_KEY)
     if (!raw) throw new Error('Create the testnet wallet first.')
-    const value = JSON.parse(raw) as Vault
+    let value: Vault
+    try { value = JSON.parse(raw) as Vault } catch { throw new Error('The encrypted wallet record is invalid.') }
     if (value.version !== 1 || !value.address || !value.salt || !value.iv || !value.ciphertext) throw new Error('The encrypted wallet record is invalid.')
+    if (value.recentTransactions !== undefined && (!Array.isArray(value.recentTransactions) || value.recentTransactions.some(item => !/^[0-9a-f]{64}$/i.test(item.transactionId)))) throw new Error('The encrypted wallet record is invalid.')
     return value
   }
 }
