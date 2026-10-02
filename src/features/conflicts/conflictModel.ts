@@ -28,6 +28,17 @@ export function isApplied(projection: Projection, eventId: string) {
 type Line = { label?: string; variant?: string; quantity?: number }
 const lineText = (line: Line) => `${line.quantity ?? ''} × ${line.label ?? ''}${line.variant ? variantText(line.variant) : ''}`
 
+const FIELD_LABELS: Record<string, string> = { name: 'name', category: 'category', niin: 'NIIN', sizeScheme: 'size scheme', reorderAt: 'low-stock threshold', countIncrement: 'count increment', active: 'active status', title: 'title', startsAt: 'date and time', notes: 'notes', kind: 'event type' }
+const valueText = (value: unknown) => {
+  if (typeof value === 'boolean') return value ? 'active' : 'inactive'
+  if (value === undefined || value === null || value === '') return '“blank”'
+  return `“${String(value)}”`
+}
+const editText = (payload: Record<string, unknown>) => Object.entries(payload)
+  .filter(([field]) => field !== 'baseRevisions' && field in FIELD_LABELS)
+  .map(([field, value]) => `${FIELD_LABELS[field]} = ${valueText(value)}`)
+  .join(', ')
+
 /** A readable summary of one competing event: what it did, to whom, when, and by whom. */
 export function describeEvent(projection: Projection, eventId: string, memberName: (publicIdentity: string) => string) {
   const record = projection.events.find(candidate => candidate.event.eventId === eventId)
@@ -41,6 +52,8 @@ export function describeEvent(projection: Projection, eventId: string, memberNam
     case 'ITEM_RETURNED': label = `Return${cadet ? ` from ${cadet}` : ''}${lines ? `: ${lines}` : ''}`; break
     case 'RECORD_CORRECTED': label = `Quantity correction: ${String(payload.from)} → ${String(payload.to)}${typeof payload.reason === 'string' ? ` (“${payload.reason}”)` : ''}`; break
     case 'INVENTORY_RECEIVED': label = `Stock received: ${String(payload.quantity)}`; break
+    case 'CATALOG_ITEM_UPDATED': label = `Catalog edit: ${editText(payload) || 'details changed'}`; break
+    case 'CALENDAR_EVENT_UPDATED': label = `Calendar edit: ${editText(payload) || 'details changed'}`; break
     default: label = event.eventType.replaceAll('_', ' ').toLowerCase()
   }
   return { label, when: new Date(event.timestamp).toLocaleString(), who: memberName(event.actorPublicIdentity), applied: isApplied(projection, eventId) }

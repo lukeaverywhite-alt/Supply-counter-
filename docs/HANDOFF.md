@@ -112,11 +112,6 @@ folded, the author's later records are held to it.
    them, then add a signed `UNIT_SETTINGS_UPDATED` event (Master-only), fold it, and let the device preference fall back
    to the unit value.
 3. **Small follow-ups found during the last pass:**
-   * The Cadets list badge (`src/features/cadets/CadetsView.tsx`) still marks a cadet READY from open Still Needed
-     alone. Use `cadetFullyIssued()` from `src/stage3/readiness.ts`, as the dashboard does.
-   * The Still Needed panel shows "Not configured" for needs raised before an item had sizes (`App.tsx`,
-     `requirementAvailability`). Show the catalog item's available sizes instead.
-   * The conflicts panel shows only the reason for catalog and calendar edit conflicts; show the competing values.
    * Count category assignments are capped at 150 sizes per count (record size limit); split larger ones.
 4. **SPV / Merkle inclusion proofs**, so VERIFIED is independently checkable (`src/blockchain/spv.ts` is a starting point).
 5. **Bundle size:** the app ships as one ~850 KB script; code-split the heavy screens and `@bsv/sdk`.

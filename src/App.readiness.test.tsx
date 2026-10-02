@@ -71,6 +71,22 @@ describe('dashboard alerts and readiness open the exact record', { timeout: 60_0
     expect(screen.getByRole('heading', { name: 'Cadets', level: 1 })).toBeInTheDocument()
   })
 
+  it('shows available catalog sizes for a need created before sizes were configured', async () => {
+    await seededApp(async controller => {
+      const projection = await controller.createCadet({ gender: 'Male', nsLevel: 'NS1', status: 'ACTIVE', cadetCode: 'C-S2ZE' })
+      const cadet = projection.cadets[0]
+      const shorts = projection.catalog.find(item => item.name === 'PT Shorts')!
+      await controller.addStillNeeded({ cadetId: cadet.cadetId, catalogId: shorts.catalogId, displayLabel: shorts.name, quantityNeeded: 1, quantityFulfilled: 0, status: 'OPEN', firstNeededAt: '2026-01-01T00:00:00.000Z', source: 'MANUAL' })
+      await controller.addCatalogSizes(shorts.catalogId, ['S', 'M', 'L'])
+    })
+
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Dashboard navigation' })).getByRole('button', { name: /Command Center/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Still needed/ }))
+    const needed = await screen.findByRole('dialog', { name: 'Still Needed' })
+    expect(within(needed).getByText('Sizes: S, M, L')).toBeInTheDocument()
+    expect(within(needed).queryByText('Not configured')).not.toBeInTheDocument()
+  })
+
   it('starts the annual rollover from the End-of-Year event, where the same checklist is shown', async () => {
     await seededApp(controller => controller.createCalendarEvent({ kind: 'END_OF_YEAR', startsAt: daysFromNow(20) }))
     fireEvent.click(within(await screen.findByRole('navigation', { name: 'Dashboard navigation' })).getByRole('button', { name: /^Calendar/ }))

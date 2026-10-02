@@ -82,7 +82,7 @@ describe('CadetsView privacy and records', () => {
 
     const card = cadetCard(code)
     expect(card).toHaveTextContent('NS2 · Female · ACTIVE')
-    expect(card).toHaveTextContent('READY')
+    expect(card).toHaveTextContent('INCOMPLETE · 8 needed')
     expect(screen.queryByText(NAME)).toBeNull()
     expect(document.body.innerHTML).not.toContain(NAME)
 
@@ -144,6 +144,16 @@ describe('CadetsView privacy and records', () => {
     fireEvent.click(screen.getByRole('button', { name: /^All/ }))
     expect(cadetCard('C-AAAA')).toBeInTheDocument()
     expect(cadetCard('C-BBBB')).toBeInTheDocument()
+  })
+
+  it('does not mark a cadet ready when standard-issue items have not been issued', async () => {
+    const { controller } = await setup()
+    const projection = await controller.createCadet({ gender: 'Male', nsLevel: 'NS1', status: 'ACTIVE', cadetCode: 'C-GAPS' })
+    render(<Harness controller={controller} initial={projection} toasts={[]} />)
+
+    const card = cadetCard('C-GAPS')
+    expect(card).toHaveTextContent('INCOMPLETE')
+    expect(card).not.toHaveTextContent('READY')
   })
 
   it('adds a cadet without a name, validates a cadet ID override and keeps the form open on failure', async () => {
@@ -284,7 +294,7 @@ describe('CadetsView privacy and records', () => {
     expect(within(drawer).getByText('ISSUE')).toBeInTheDocument()
     expect(within(drawer).getByText(/PT Shorts · M × 1 · 2 added to Still Needed/)).toBeInTheDocument()
     expect(within(drawer).getByRole('button', { name: 'Return Items' })).toBeEnabled()
-    expect(cadetCard(code)).toHaveTextContent('INCOMPLETE · 2 needed')
+    expect(cadetCard(code)).toHaveTextContent('INCOMPLETE · 10 needed')
   })
 
   it('hides Add and Edit without cadets.manage and disables issue/return without inventory permissions', async () => {
