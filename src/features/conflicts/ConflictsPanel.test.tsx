@@ -8,6 +8,7 @@ import { MockIdentityProvider } from '../../identity/identity'
 import { MemoryRepository } from '../../storage/repository'
 import { MockSyncProvider } from '../../sync/mock'
 import { ConflictsPanel } from './ConflictsPanel'
+import { describeEvent } from './conflictModel'
 
 const NAMES: Record<string, string> = { 'mock:officer-a': 'Chief Ames', 'mock:officer-b': 'Petty Officer Bell' }
 const memberName = (identity: string) => NAMES[identity] ?? 'Unit member'
@@ -51,6 +52,19 @@ function Harness({ controller, initial, can = () => true, toasts }: { controller
 }
 
 describe('ConflictsPanel (spec §23)', () => {
+  it('describes the competing values in catalog and calendar edit conflicts', () => {
+    const projection = {
+      events: [
+        { event: { eventId: 'catalog-edit', eventType: 'CATALOG_ITEM_UPDATED', timestamp: '2026-01-02T03:04:00.000Z', actorPublicIdentity: 'mock:officer-a', payload: { name: 'Dress Jacket', reorderAt: 4 } } },
+        { event: { eventId: 'calendar-edit', eventType: 'CALENDAR_EVENT_UPDATED', timestamp: '2026-01-02T03:05:00.000Z', actorPublicIdentity: 'mock:officer-b', payload: { title: 'AMI Inspection', startsAt: '2026-04-10T14:00:00.000Z', baseRevisions: {} } } },
+      ],
+      transactions: [], cadets: [], conflicts: [], rejected: [],
+    } as unknown as ArgusAppProjection
+
+    expect(describeEvent(projection, 'catalog-edit', memberName).label).toBe('Catalog edit: name = “Dress Jacket”, low-stock threshold = “4”')
+    expect(describeEvent(projection, 'calendar-edit', memberName).label).toBe('Calendar edit: title = “AMI Inspection”, date and time = “2026-04-10T14:00:00.000Z”')
+  })
+
   it('shows the impossible state, the losing cadet and the competing events, then records the chosen outcome', async () => {
     const { b, cadetB, medium } = await lastJacketConflict()
     const toasts: string[] = []

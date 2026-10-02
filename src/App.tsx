@@ -880,6 +880,10 @@ function NeededPanel({
         {requirements.length ? (
           requirements.map((n) => {
             const count = Math.max(0, n.quantityNeeded - n.quantityFulfilled);
+            const catalogId = n.catalogId ?? projection.inventory.find(item => item.entityId === n.itemId)?.catalogId ?? projection.catalog.find(item => item.name === n.displayLabel)?.catalogId;
+            const availableSizes = catalogId
+              ? projection.inventory.filter(item => item.catalogId === catalogId && item.active).map(item => item.variant)
+              : [];
             const cadet = projection.cadets.find(
               (c) => c.cadetId === n.cadetId,
             );
@@ -923,7 +927,9 @@ function NeededPanel({
                   >
                     <span />
                     {!n.availability.configured
-                      ? "Not configured"
+                      ? availableSizes.length
+                        ? `Sizes: ${availableSizes.join(", ")}`
+                        : "Not configured"
                       : n.availability.available
                         ? `${n.availability.onHand} available`
                         : "Awaiting stock"}

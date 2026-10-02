@@ -4,6 +4,7 @@ import { Drawer } from '../../components/Drawer'
 import type { ArgusAppProjection, DistributedAppController } from '../../distributed/appIntegration'
 import type { ArgusPermission } from '../../distributed/types'
 import { cadetLabel } from '../../stage3/domain'
+import { cadetFullyIssued, standardIssueGaps } from '../../stage3/readiness'
 import { CadetDrawer } from './CadetDrawer'
 import { CadetForm } from './CadetForm'
 import { cadetMatches, cadetMonogram } from './cadetDisplay'
@@ -112,8 +113,12 @@ export function CadetsView({ projection, controller, can, onProjection, notify, 
         ) : (
           <div className="cadet-grid">
             {visible.map(cadet => {
-              const ready = cadet.readiness.status === 'READY'
-              const readiness = ready ? 'READY' : `INCOMPLETE · ${cadet.stillNeededCount} needed`
+              const gaps = standardIssueGaps(cadet, projection)
+              const ready = cadetFullyIssued(cadet, projection)
+              // Standard-issue gaps can also have a matching Still Needed record after a partial
+              // issue. Use the larger count instead of double-counting the same missing item.
+              const missing = Math.max(cadet.stillNeededCount, gaps.length)
+              const readiness = ready ? 'READY' : `INCOMPLETE · ${missing} needed`
               return (
                 <button className="cadet-card" key={cadet.cadetId} onClick={() => setOpenCadetId(cadet.cadetId)}>
                   <span className="large-avatar" aria-hidden="true">{cadetMonogram(cadet)}</span>
