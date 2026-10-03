@@ -23,7 +23,7 @@ export type ActivityDescription = {
   correction?: ActivityCorrection
 }
 
-type Projection = Pick<ArgusAppProjection, 'inventory' | 'catalog' | 'cadets' | 'countSessions' | 'calendar' | 'bundles' | 'stillNeeded' | 'conflicts' | 'members' | 'keyEpochs' | 'rollovers' | 'events' | 'transactions'>
+type Projection = Pick<ArgusAppProjection, 'inventory' | 'catalog' | 'cadets' | 'countSessions' | 'calendar' | 'bundles' | 'stillNeeded' | 'conflicts' | 'members' | 'keyEpochs' | 'tickets' | 'rollovers' | 'events' | 'transactions'>
 type Line = { label?: unknown; variant?: unknown; quantity?: unknown; itemId?: unknown }
 
 /** Payload fields that may hold a person's name or free text: never shown, even when a correction targets them. */
@@ -210,6 +210,18 @@ export function describeActivity(projection: Projection, record: StoredEvent, me
       const epoch = projection.keyEpochs.find(candidate => candidate.eventId === event.eventId)
       const why = payload.reason === 'REVOCATION' ? 'after a member was removed' : 'on request'
       return { title: 'Unit key replaced', record: { kind: 'Unit key', label: `Replaced ${why}${epoch ? ` · given to ${plural(epoch.recipients.length, 'holder')}` : ''}` } }
+    }
+    case 'TICKET_ISSUED': {
+      const name = text(payload.displayName, 'someone'), role = typeof payload.role === 'string' ? roleLabel(payload.role) : undefined
+      return { title: `Made a ticket for ${name}${role ? ` as ${role}` : ''}`, record: { kind: 'Ticket', label: name } }
+    }
+    case 'TICKET_CANCELLED': {
+      const ticket = projection.tickets.find(candidate => candidate.ticketId === event.entityId), name = ticket?.displayName ?? 'someone'
+      return { title: `${payload.reason === 'EXPIRED' ? 'Closed the expired' : 'Cancelled the'} ticket for ${name}`, record: { kind: 'Ticket', label: name } }
+    }
+    case 'TICKET_REDEEMED': {
+      const ticket = projection.tickets.find(candidate => candidate.ticketId === event.entityId), name = ticket?.displayName ?? person(event.actorPublicIdentity)
+      return { title: `${name} used their ticket`, record: { kind: 'Ticket', label: name } }
     }
     case 'RECOVERY_KEY_REGISTERED':
       return { title: 'Recovery key registered', record: { kind: 'Unit key', label: 'Unit recovery file' } }

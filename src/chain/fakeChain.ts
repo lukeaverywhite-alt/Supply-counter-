@@ -76,6 +76,8 @@ export class FakeChain implements ChainApi {
   duplicateUnspent = false
   /** The next N txHex() calls answer 404 even for known transactions (index lag). */
   txHexNotFoundCount = 0
+  /** What tipTime() reports: the chain's own time as a test sets it (unknown until then). */
+  blockTime?: Date
 
   readonly requestCount: FakeChainRequestCounts = { unspent: 0, txHex: 0, confirmedHistory: 0, unconfirmedHistory: 0, broadcast: 0, tipHeight: 0 }
 
@@ -254,6 +256,10 @@ export class FakeChain implements ChainApi {
   async tipHeight(): Promise<number> {
     this.requestCount.tipHeight += 1
     return this.tip
+  }
+
+  async tipTime(): Promise<string | undefined> {
+    return this.blockTime?.toISOString()
   }
 
   // ---------------------------------------------------------------- internals

@@ -10,7 +10,8 @@ import { DEFAULT_SETTINGS, LocalSettingsStorage, SETTINGS_KEY } from '../../sett
 import { GENESIS_CATALOG } from '../../stage3/domain'
 import { MemoryLedgerStore } from '../../unit/ledgerStore'
 import { UnitRuntime } from '../../unit/runtime'
-import { acceptAdmission, createJoiningDevice, createMasterDevice, encodeJoinRequest } from '../../unit/vault'
+import { joinByTicket } from '../../test/joinByTicket'
+import { createMasterDevice } from '../../unit/vault'
 import { ActivityView } from './ActivityView'
 import { describeActivity } from './activityModel'
 
@@ -90,7 +91,7 @@ describe('Activity / audit view (spec §36)', () => {
 
   it('describes every event type in plain words with an affected record, and never exposes key material', async () => {
     const { projection } = await history()
-    const ALL: Record<DistributedEventType, true> = { INVENTORY_ITEM_CREATED: true, INVENTORY_ITEM_UPDATED: true, INVENTORY_RECEIVED: true, CATALOG_ITEM_CREATED: true, CATALOG_ITEM_UPDATED: true, CATALOG_SIZES_ADDED: true, ITEM_ISSUED: true, ITEM_RETURNED: true, INVENTORY_COUNT_SUBMITTED: true, COUNT_SESSION_CREATED: true, COUNT_CONTRIBUTED: true, COUNT_CORRECTED: true, COUNT_RECOUNTED: true, COUNT_SESSION_SUBMITTED: true, COUNT_SESSION_REOPENED: true, COUNT_SESSION_RECONCILED: true, COUNT_SESSION_CANCELLED: true, AUTHORITY_GRANTED: true, ADMISSION_CONFIRMED: true, AUTHORITY_REVOKED: true, ROLE_CHANGED: true, CONFLICT_DETECTED: true, CONFLICT_RESOLVED: true, RECORD_CORRECTED: true, CADET_CREATED: true, CADET_UPDATED: true, BUNDLE_CREATED: true, BUNDLE_UPDATED: true, BUNDLE_DEACTIVATED: true, STILL_NEEDED_ADDED: true, STILL_NEEDED_UPDATED: true, STILL_NEEDED_CANCELLED: true, STILL_NEEDED_FULFILLED: true, CALENDAR_EVENT_CREATED: true, CALENDAR_EVENT_UPDATED: true, CALENDAR_TASK_ADDED: true, CALENDAR_TASK_UPDATED: true, CALENDAR_TASK_REMOVED: true, CALENDAR_ATTENDEES_ADDED: true, CALENDAR_ATTENDEES_REMOVED: true, CALENDAR_BUNDLES_ADDED: true, CALENDAR_BUNDLES_REMOVED: true, TASK_COMPLETED: true, PROPERTY_CORRECTED: true, ANNUAL_ROLLOVER_COMPLETED: true, CADETS_IMPORTED: true, UNIT_KEY_ROTATED: true, RECOVERY_KEY_REGISTERED: true }
+    const ALL: Record<DistributedEventType, true> = { INVENTORY_ITEM_CREATED: true, INVENTORY_ITEM_UPDATED: true, INVENTORY_RECEIVED: true, CATALOG_ITEM_CREATED: true, CATALOG_ITEM_UPDATED: true, CATALOG_SIZES_ADDED: true, ITEM_ISSUED: true, ITEM_RETURNED: true, INVENTORY_COUNT_SUBMITTED: true, COUNT_SESSION_CREATED: true, COUNT_CONTRIBUTED: true, COUNT_CORRECTED: true, COUNT_RECOUNTED: true, COUNT_SESSION_SUBMITTED: true, COUNT_SESSION_REOPENED: true, COUNT_SESSION_RECONCILED: true, COUNT_SESSION_CANCELLED: true, AUTHORITY_GRANTED: true, ADMISSION_CONFIRMED: true, AUTHORITY_REVOKED: true, ROLE_CHANGED: true, CONFLICT_DETECTED: true, CONFLICT_RESOLVED: true, RECORD_CORRECTED: true, CADET_CREATED: true, CADET_UPDATED: true, BUNDLE_CREATED: true, BUNDLE_UPDATED: true, BUNDLE_DEACTIVATED: true, STILL_NEEDED_ADDED: true, STILL_NEEDED_UPDATED: true, STILL_NEEDED_CANCELLED: true, STILL_NEEDED_FULFILLED: true, CALENDAR_EVENT_CREATED: true, CALENDAR_EVENT_UPDATED: true, CALENDAR_TASK_ADDED: true, CALENDAR_TASK_UPDATED: true, CALENDAR_TASK_REMOVED: true, CALENDAR_ATTENDEES_ADDED: true, CALENDAR_ATTENDEES_REMOVED: true, CALENDAR_BUNDLES_ADDED: true, CALENDAR_BUNDLES_REMOVED: true, TASK_COMPLETED: true, PROPERTY_CORRECTED: true, ANNUAL_ROLLOVER_COMPLETED: true, CADETS_IMPORTED: true, UNIT_KEY_ROTATED: true, RECOVERY_KEY_REGISTERED: true, TICKET_ISSUED: true, TICKET_CANCELLED: true, TICKET_REDEEMED: true }
     const base = projection.events[0]
     for (const eventType of Object.keys(ALL) as DistributedEventType[]) {
       const payload = eventType === 'UNIT_KEY_ROTATED' ? { epochId: 'e2', previousEpoch: 'e1', reason: 'REVOCATION', grants: [{ wrappedKey: 'SECRET-WRAPPED-KEY' }], grantorEcdhPublicKey: 'ECDH-KEY' } : {}
@@ -102,6 +103,18 @@ describe('Activity / audit view (spec §36)', () => {
     expect(describeActivity(projection, { ...base, event: { ...base.event, eventType: 'UNIT_KEY_ROTATED', entityId: 'e2', payload: { reason: 'REVOCATION' } } }, () => 'Chief')).toMatchObject({ title: 'Unit key replaced', record: { kind: 'Unit key' } })
     const member = { publicIdentity: 'member-1', displayName: 'Jordan', role: 'SUPPLY_OFFICER' as const, credentialId: 'c1', issuedAt: '', admittedBy: '', admittedEventId: '', status: 'ACTIVE' as const }
     expect(describeActivity({ ...projection, members: [member] }, { ...base, event: { ...base.event, eventType: 'ROLE_CHANGED', entityId: 'member-1', payload: { credential: { role: 'SUPPLY_OFFICER' } } } }, () => 'Jordan').title).toBe('Jordan is now Supply Officer')
+  })
+
+  it('describes tickets by the person they are for, never by their code or keys', async () => {
+    const { projection } = await history()
+    const base = projection.events[0]
+    const ticket = { ticketId: 't-00000000000000000001', ticketAddress: 'mrcNu71ztWjAQA6ww9kHiW3zBWSQidHXTQ', ticketEcdhPublicKey: 'ECDH-KEY', displayName: 'Chris Cadet', role: 'SUPPLY_ASSISTANT' as const, issuedAt: '', expiresAt: '', funding: { txid: 'ab'.repeat(32), vout: 0, satoshis: 2000 }, issuedBy: 'x', issuedEventId: 'e', status: 'OPEN' as const }
+    const describe = (eventType: 'TICKET_ISSUED' | 'TICKET_CANCELLED' | 'TICKET_REDEEMED', payload: Record<string, unknown>) => describeActivity({ ...projection, tickets: [ticket] }, { ...base, event: { ...base.event, eventType, entityId: ticket.ticketId, payload } }, () => 'Chief')
+    expect(describe('TICKET_ISSUED', { displayName: 'Chris Cadet', role: 'SUPPLY_ASSISTANT', ticketEcdhPublicKey: 'ECDH-KEY' })).toMatchObject({ title: 'Made a ticket for Chris Cadet as Supply Assistant', record: { kind: 'Ticket', label: 'Chris Cadet' } })
+    expect(describe('TICKET_CANCELLED', { reason: 'CANCELLED' }).title).toBe('Cancelled the ticket for Chris Cadet')
+    expect(describe('TICKET_CANCELLED', { reason: 'EXPIRED' }).title).toBe('Closed the expired ticket for Chris Cadet')
+    expect(describe('TICKET_REDEEMED', {}).title).toBe('Chris Cadet used their ticket')
+    expect(JSON.stringify(describe('TICKET_ISSUED', { displayName: 'Chris Cadet', role: 'SUPPLY_ASSISTANT', ticketEcdhPublicKey: 'ECDH-KEY' }))).not.toContain('ECDH-KEY')
   })
 
   it('names the item and what changed for item edits (minor 3)', async () => {
@@ -122,10 +135,11 @@ describe('Activity access (spec §4 audit.read)', { timeout: 120_000 }, () => {
   it('is hidden from a Supply Assistant — no tab, no dashboard tile, and a saved default of Activity lands on Home', async () => {
     const chain = new FakeChain()
     const options = () => ({ api: chain, ledger: new MemoryLedgerStore(), walletStore: new MemoryWalletStateStore(), storage: memoryStorage() })
-    const master = await UnitRuntime.open(await createMasterDevice({ passphrase: 'supply closet 42', displayName: 'Chief', unitName: 'Bethel NJROTC' }, memoryStorage()), options())
+    const masterDevice = await createMasterDevice({ passphrase: 'supply closet 42', displayName: 'Chief', unitName: 'Bethel NJROTC' }, memoryStorage())
+    chain.fund(masterDevice.record.walletAddress, 100_000, { confirmed: true })
+    const master = await UnitRuntime.open(masterDevice, options())
     const assistantStorage = memoryStorage()
-    const pending = await createJoiningDevice({ passphrase: 'another pass 77', displayName: 'Casey' }, assistantStorage)
-    await acceptAdmission(pending, (await master.admit(await encodeJoinRequest(pending), 'SUPPLY_ASSISTANT')).admissionCode, assistantStorage)
+    await joinByTicket(master, chain, 'Casey', 'SUPPLY_ASSISTANT', { store: assistantStorage })
     const preferences = memoryStorage()
     preferences.setItem(SETTINGS_KEY, JSON.stringify({ ...DEFAULT_SETTINGS, defaultSection: 'activity' }))
 

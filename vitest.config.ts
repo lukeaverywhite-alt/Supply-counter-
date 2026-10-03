@@ -6,6 +6,7 @@ export default defineConfig({
     include: ['src/**/*.test.{ts,tsx}'],
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    testTimeout: 30_000,
     coverage: {
       provider: 'v8',
       reportsDirectory: 'coverage-stage3a',

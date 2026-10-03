@@ -4,7 +4,8 @@ import { MemoryWalletStateStore } from '../chain/walletStore'
 import { GENESIS_CATALOG } from '../stage3/domain'
 import { MemoryLedgerStore } from './ledgerStore'
 import { UnitRuntime } from './runtime'
-import { acceptAdmission, createJoiningDevice, createMasterDevice, encodeJoinRequest, restoreFromRecoveryFile, type UnlockedDevice } from './vault'
+import { joinByTicket } from '../test/joinByTicket'
+import { createMasterDevice, restoreFromRecoveryFile, type UnlockedDevice } from './vault'
 
 const PT_SHORTS = GENESIS_CATALOG.find(item => item.name === 'PT Shorts')!.catalogId
 const GOLD_SHIRT = GENESIS_CATALOG.find(item => item.name === 'Gold PT Shirt')!.catalogId
@@ -13,13 +14,9 @@ type Device = { runtime: UnitRuntime; store: ReturnType<typeof storage>; ledger:
 const open = async (device: UnlockedDevice, chain: FakeChain, store: ReturnType<typeof storage>, ledger = new MemoryLedgerStore()): Promise<Device> => ({ runtime: await UnitRuntime.open(device, { api: chain, ledger, walletStore: new MemoryWalletStateStore(), storage: store }), store, ledger })
 const sizesOf = async (device: Device, catalogId: string) => (await device.runtime.controller.project()).inventory.filter(item => item.catalogId === catalogId).map(item => item.variant).sort()
 
-async function join(admitter: UnitRuntime, chain: FakeChain, name: string, role: Parameters<UnitRuntime['admit']>[1], topUpSatoshis = 20_000) {
-  const store = storage(), pending = await createJoiningDevice({ passphrase: 'another pass 77', displayName: name }, store)
-  const admitted = await admitter.admit(await encodeJoinRequest(pending), role, { topUpSatoshis })
-  expect(admitted.topUpError).toBeUndefined()
-  const joined = await open(await acceptAdmission(pending, admitted.admissionCode, store), chain, store)
-  await joined.runtime.confirmAdmission()
-  return joined
+async function join(issuer: UnitRuntime, chain: FakeChain, name: string, role: Parameters<UnitRuntime['issueTicket']>[1]): Promise<Device> {
+  const { runtime, store, ledger } = await joinByTicket(issuer, chain, name, role)
+  return { runtime, store, ledger }
 }
 async function unit() {
   const chain = new FakeChain(), store = storage()
@@ -93,9 +90,10 @@ describe('unit key management over a (fake) BSV testnet chain', { timeout: 180_0
     expect(b.runtime.device.record.role).toBe('MASTER')
     expect((await c.runtime.controller.project()).members.find(member => member.displayName === 'Officer B')?.role).toBe('MASTER')
 
-    // B admits D with B's own key (B never holds the unit authority key).
+    // B makes D's ticket with B's own key (B never holds the unit authority key).
     expect(b.runtime.status().holdsAuthority).toBe(false)
-    const d = await join(b.runtime, chain, 'Assistant D', 'SUPPLY_ASSISTANT', 2_000)
+    chain.fund(b.runtime.device.record.walletAddress, 50_000, { confirmed: true })
+    const d = await join(b.runtime, chain, 'Assistant D', 'SUPPLY_ASSISTANT')
     await syncAll(chain, b, d)
     await d.runtime.controller.createCountSession({ sessionId: 'd-count', scope: 'Shelf D' })
     await syncAll(chain, d, a, c)

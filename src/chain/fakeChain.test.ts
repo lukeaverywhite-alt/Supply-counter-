@@ -33,6 +33,11 @@ describe('FakeChain basics', () => {
     expect(chain.get(pending)?.height).toBe(0)
     expect(chain.get(confirmed)?.height).toBe(101)
     expect(await chain.tipHeight()).toBe(101)
+    // the chain's time is whatever a test sets, and unknown until then
+    expect(await chain.tipTime()).toBeUndefined()
+    chain.blockTime = new Date('2026-10-09T00:00:00.000Z')
+    expect(await chain.tipTime()).toBe('2026-10-09T00:00:00.000Z')
+    chain.blockTime = undefined
     expect(chain.mempool()).toEqual([pending])
     expect(await chain.unspent(address)).toEqual([
       { txid: pending, vout: 0, satoshis: 1000, height: 0 },

@@ -19,7 +19,7 @@
 
 import { P2PKH, PrivateKey, SatoshisPerKilobyte, Transaction, Utils, type LockingScript } from '@bsv/sdk'
 import { anchorLockingScript } from '../blockchain/anchor'
-import { assertTestnetAddress, assertValidRecordBatch, encodeArgusRecordScript } from './codec'
+import { assertTestnetAddress, assertValidRecordBatch, computeTxid, encodeArgusRecordScript } from './codec'
 import type {
   ArgusRecord,
   BroadcastOutcome,
@@ -311,6 +311,46 @@ export class DeviceWallet {
         throw new Error(`Transfer amount must be a whole number of satoshis, at least 1 (got ${String(satoshis)}).`)
       }
       return this.prepare('transfer', [{ lockingScript: new P2PKH().lock(toAddress), satoshis }], [])
+    })
+  }
+
+  /**
+   * Builds, signs and queues one transaction that spends a single output belonging to ANOTHER key (an admission ticket's
+   * funding output, ADR 012), signed with that key: its records (data outputs) and a 1-satoshi output to `markerAddress` (and to
+   * each of `alsoMarkAddresses`: a redemption also shows on the unit's anchor), with everything else going back to this wallet as change. The output is not one of this wallet's coins, so it is never
+   * selected or reserved here; the network alone decides whether it is still unspent. Never broadcasts.
+   */
+  prepareSpendOfOutpoint(spend: { key: PrivateKey; outpoint: { txid: string; vout: number }; records: ArgusRecord[]; markerAddress: string; alsoMarkAddresses?: string[]; correlationIds: string[] }): Promise<WalletPendingTx> {
+    return this.exclusive(async () => {
+      assertValidRecordBatch(spend.records)
+      const markers = [spend.markerAddress, ...(spend.alsoMarkAddresses ?? [])]
+      for (const marker of markers) assertTestnetAddress(marker, 'Marker address')
+      const state = await this.loadState()
+      const hex = this.localTxHex(state, spend.outpoint.txid) ?? (await this.api.txHex(spend.outpoint.txid)).trim().toLowerCase()
+      if (computeTxid(hex) !== spend.outpoint.txid.toLowerCase()) throw new Error('The funding transaction the network returned is not the one this ticket names.')
+      const source = Transaction.fromHex(hex), funding = source.outputs[spend.outpoint.vout]
+      if (!funding || funding.lockingScript.toHex() !== new P2PKH().lock(spend.key.toAddress('testnet')).toHex()) throw new Error('That output does not belong to this ticket key.')
+      const tx = new Transaction()
+      tx.addInput({ sourceTransaction: source, sourceOutputIndex: spend.outpoint.vout, unlockingScriptTemplate: new P2PKH().unlock(spend.key) })
+      for (const record of spend.records) tx.addOutput({ lockingScript: encodeArgusRecordScript(record), satoshis: 0 })
+      for (const marker of markers) tx.addOutput({ lockingScript: anchorLockingScript(marker), satoshis: ANCHOR_OUTPUT_SATOSHIS })
+      tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true })
+      const rate = this.feeRate(state)
+      try {
+        await tx.fee(new SatoshisPerKilobyte(rate))
+      } catch (error) {
+        if (error instanceof RangeError) throw new Error('The ticket’s funding is too small to pay for this transaction.', { cause: error })
+        throw error
+      }
+      await tx.sign()
+      const txid = tx.id('hex'), txHex = tx.toHex()
+      const changeIndex = tx.outputs.findIndex((output) => output.change === true && (output.satoshis ?? 0) > 0)
+      const next = cloneState(state)
+      if (changeIndex >= 0) next.coins.push({ txid, vout: changeIndex, satoshis: tx.outputs[changeIndex].satoshis ?? 0, height: 0, sourceTxHex: txHex, origin: 'change' })
+      const pendingTx: WalletPendingTx = { txid, hex: txHex, createdAt: this.now(), purpose: 'records', correlationIds: [...spend.correlationIds], feeSatPerKb: rate, attempts: 0, status: 'pending' }
+      next.pending.push(pendingTx)
+      await this.commit(next)
+      return clonePending(pendingTx)
     })
   }
 

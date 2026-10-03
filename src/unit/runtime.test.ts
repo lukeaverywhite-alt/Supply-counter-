@@ -4,7 +4,8 @@ import { MemoryWalletStateStore } from '../chain/walletStore'
 import { GENESIS_CATALOG } from '../stage3/domain'
 import { MemoryLedgerStore } from './ledgerStore'
 import { UnitRuntime } from './runtime'
-import { acceptAdmission, createJoiningDevice, createMasterDevice, encodeJoinRequest, type UnlockedDevice } from './vault'
+import { joinByTicket } from '../test/joinByTicket'
+import { createMasterDevice, type UnlockedDevice } from './vault'
 
 const PT_SHORTS = GENESIS_CATALOG.find(item => item.name === 'PT Shorts')!.catalogId
 const storage = () => { const values = new Map<string, string>(); return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) }, removeItem: (key: string) => { values.delete(key) } } }
@@ -15,38 +16,12 @@ async function unitWithMembers(chain: FakeChain) {
   chain.fund(masterDevice.record.walletAddress, 200_000, { confirmed: true })
   const master = await open(masterDevice, chain)
   const joiners = [] as UnitRuntime[]
-  for (const name of ['Officer B', 'Assistant C']) {
-    const pending = await createJoiningDevice({ passphrase: 'another pass 77', displayName: name }, storage())
-    const admitted = await master.admit(await encodeJoinRequest(pending), name.startsWith('Officer') ? 'SUPPLY_OFFICER' : 'SUPPLY_ASSISTANT', { topUpSatoshis: 20_000 })
-    expect(admitted.topUpError).toBeUndefined()
-    const joined = await open(await acceptAdmission(pending, admitted.admissionCode, storage()), chain)
-    await joined.confirmAdmission()
-    joiners.push(joined)
-  }
+  for (const name of ['Officer B', 'Assistant C']) joiners.push((await joinByTicket(master, chain, name, name.startsWith('Officer') ? 'SUPPLY_OFFICER' : 'SUPPLY_ASSISTANT')).runtime)
   await master.syncNow(); chain.mine()
   return { master, joiners, masterDevice }
 }
 
 describe('unit runtime over a (fake) BSV testnet chain', { timeout: 120_000 }, () => {
-  it('does not call an issued, funded invitation active until the invited device confirms acceptance', async () => {
-    const chain = new FakeChain(), masterDevice = await createMasterDevice({ passphrase: 'supply closet 42', displayName: 'Chief', unitName: 'Unit' }, storage())
-    chain.fund(masterDevice.record.walletAddress, 100_000, { confirmed: true })
-    const master = await open(masterDevice, chain), pending = await createJoiningDevice({ passphrase: 'another pass 77', displayName: 'Taylor' }, storage())
-    const invitation = await master.admit(await encodeJoinRequest(pending), 'SUPPLY_ASSISTANT', { topUpSatoshis: 20_000 })
-    expect(invitation.topUpTxid).toBeTruthy()
-    expect((await master.controller.project()).members.find(member => member.displayName === 'Taylor')?.status).toBe('INVITED')
-
-    // Funding proves only that the wallet transaction worked. A bad acceptance still leaves the invitation pending.
-    await expect(acceptAdmission(pending, invitation.admissionCode.slice(0, -4) + 'nope', storage())).rejects.toThrow()
-    expect((await master.controller.project()).members.find(member => member.displayName === 'Taylor')?.status).toBe('INVITED')
-
-    const admitted = await open(await acceptAdmission(pending, invitation.admissionCode, storage()), chain)
-    await admitted.confirmAdmission() // durable locally even before the Master can see it
-    expect((await master.controller.project()).members.find(member => member.displayName === 'Taylor')?.status).toBe('INVITED')
-    await master.syncNow(); await admitted.syncNow(); await master.syncNow()
-    expect((await master.controller.project()).members.find(member => member.displayName === 'Taylor')).toMatchObject({ status: 'ACTIVE', activationEventId: expect.any(String) })
-  })
-
   it('A counts 3 PT Shorts, B counts 3 PT Shorts: every device — including one that only reads the chain — shows 6, and finalizing sets on-hand to 6', async () => {
     const chain = new FakeChain()
     const { master: a, joiners: [b, c] } = await unitWithMembers(chain)

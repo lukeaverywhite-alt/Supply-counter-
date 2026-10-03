@@ -48,6 +48,11 @@ export interface ChainApi {
   broadcast(txHex: string): Promise<BroadcastOutcome>
   /** Current best height (used for status only). */
   tipHeight(): Promise<number>
+  /**
+   * The chain's own time (ISO), from the latest blocks, or undefined when the service does not say. A phone cannot set it back, so
+   * a ticket's expiry is checked against the later of it and the phone's clock (ADR 012).
+   */
+  tipTime(): Promise<string | undefined>
 }
 
 /** A wallet-tracked coin. sourceTxHex lets the SDK sign without refetching, and lets chained unconfirmed spends work. */
@@ -115,7 +120,7 @@ export interface WalletStateStore {
 }
 
 /** A.R.G.U.S. record kinds carried in data outputs. */
-export type ArgusRecordKind = 'E' /* encrypted event envelope */ | 'G' /* key grant (wrapped unit key) */
+export type ArgusRecordKind = 'E' /* encrypted event envelope */ | 'G' /* key grant (wrapped unit key) */ | 'T' /* admission ticket record, at a ticket address (ADR 012) */
 
 export type ArgusRecord = { kind: ArgusRecordKind; payload: Uint8Array }
 

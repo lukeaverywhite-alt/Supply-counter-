@@ -1,6 +1,7 @@
-import type { AuthorizationService } from '../auth/authorization'
+import { isTicketCredential, ticketCredential, type AuthorizationService } from '../auth/authorization'
 import type { EventDelivery } from '../distributed/delivery'
 import type { AuthorityCredential, AuthorityRevocation, SignedArgusEvent } from '../distributed/types'
+import { parseTicketRedeemedFact } from '../private-sync/schema'
 import type { EventSyncProvider } from '../sync/mock'
 import { openEnvelope, sealEnvelope } from './envelope'
 import type { LedgerStore, StoredEnvelope } from './ledgerStore'
@@ -93,7 +94,8 @@ export class UnitEventSyncProvider implements EventSyncProvider {
       try {
         const opened = await this.openGenuine(record)
         if (!opened) { this.forged.set(eventId, 'Forged or tampered record set aside.'); this.delivered.add(eventId); this.backlog.delete(eventId); this.unreadable.delete(eventId); continue }
-        const { event, credential } = opened
+        const { event, credential, spends } = opened
+        if (event.eventType === 'TICKET_REDEEMED') await this.acceptRedemption(event, spends)
         if (credential) await this.acceptCredential(credential)
         await this.acceptAuthorityPayload(event)
         events.push(event)
@@ -110,14 +112,14 @@ export class UnitEventSyncProvider implements EventSyncProvider {
    * (no key yet), so it is retried later.
    */
   private async openGenuine(record: StoredEnvelope) {
-    const candidates = [{ envelope: record.envelope, txid: record.txid, height: record.height }, ...(record.alternates ?? [])]
+    const candidates = [{ envelope: record.envelope, txid: record.txid, height: record.height, spends: record.spends }, ...(record.alternates ?? [])]
     let waiting: unknown
     for (const [index, candidate] of candidates.entries()) {
       let opened
       try { opened = await openEnvelope(candidate.envelope, this.deps.keyFor) } catch (error) { if (error instanceof Error && error.message.startsWith('NO_EPOCH_KEY')) waiting ??= error; continue }
       if (this.deps.validate && !(await this.deps.validate(opened.event))) continue
-      if (index > 0) await this.deps.store.replaceEnvelope({ ...record, envelope: candidate.envelope, ...(candidate.txid ? { txid: candidate.txid } : {}), ...(candidate.height !== undefined ? { height: candidate.height } : {}), alternates: candidates.filter((_, other) => other !== index && other > 0).map(entry => ({ envelope: entry.envelope, txid: entry.txid ?? '', height: entry.height ?? 0 })) })
-      return opened
+      if (index > 0) await this.deps.store.replaceEnvelope({ ...record, envelope: candidate.envelope, ...(candidate.txid ? { txid: candidate.txid } : {}), ...(candidate.height !== undefined ? { height: candidate.height } : {}), spends: candidate.spends ?? [], alternates: candidates.filter((_, other) => other !== index && other > 0).map(entry => ({ envelope: entry.envelope, txid: entry.txid ?? '', height: entry.height ?? 0, ...(entry.spends ? { spends: entry.spends } : {}) })) })
+      return { ...opened, spends: candidate.spends ?? [] }
     }
     if (waiting) throw waiting
     return undefined
@@ -151,13 +153,26 @@ export class UnitEventSyncProvider implements EventSyncProvider {
   }
 
   private async acceptCredential(credential: AuthorityCredential) {
-    if (this.acceptedCredentials.has(credential.credentialId)) return
+    // A ticket credential is never taken on its word, wherever it travels: only a redemption carried by its ticket's spend proves it.
+    if (isTicketCredential(credential) || this.acceptedCredentials.has(credential.credentialId)) return
     // An invalid or foreign credential is simply not accepted; the replica then rejects that author's events as unauthorized
     // (and re-folds them once a later credential makes them valid). Unknown issuers are retried; the list is bounded.
     if (!(await this.tryAccept(credential)) && this.pendingCredentials.size < 1_000) this.pendingCredentials.set(credential.credentialId, credential)
   }
   private async tryAccept(credential: AuthorityCredential) {
     try { await this.deps.authorization.acceptCredential(credential); this.acceptedCredentials.add(credential.credentialId); return true } catch { return false }
+  }
+  /**
+   * Single use (ADR 012): a TICKET_REDEEMED record proves its ticket credential only when it arrived in the transaction that spends the
+   * ticket's funding output, which the network allows once. Any other copy (a code holder writing a fact of their own) proves nothing;
+   * it still goes to the fold, which refuses it in the open because its credential was never verified.
+   */
+  private async acceptRedemption(event: SignedArgusEvent, spends: string[]) {
+    let credential
+    try { credential = ticketCredential(parseTicketRedeemedFact(event.payload)) } catch { return }
+    const { funding } = credential.ticket.invitation
+    if (!spends.includes(`${funding.txid}:${funding.vout}`)) return
+    if (!(await this.tryAccept(credential)) && this.pendingCredentials.size < 1_000) this.pendingCredentials.set(credential.credentialId, credential)
   }
   private async acceptAuthorityPayload(event: SignedArgusEvent) {
     if (event.eventType === 'AUTHORITY_GRANTED' && event.payload.credential) await this.acceptCredential(event.payload.credential as AuthorityCredential)

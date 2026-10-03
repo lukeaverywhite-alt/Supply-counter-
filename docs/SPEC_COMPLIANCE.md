@@ -41,7 +41,7 @@ say exactly what is missing and why. Decisions the unit owner made that shape th
 ## Section by section
 
 ### §3 Authority and identity
-* Each person's own signing, ECDH and wallet keys live only on their device, sealed under their passphrase (`src/unit/vault.ts`). Admission uses public join/admission codes; no secret is ever copied.
+* Each person's own signing, ECDH and wallet keys live only on their device, sealed under their passphrase (`src/unit/vault.ts`). People join by a one-week, one-use ticket (ADR 012); no secret is ever copied between devices.
 * Credentials carry subject, role, permissions, issued date, issuer, optional expiry, version; revocations are signed (`src/auth/authorization.ts`).
 * **Delegated Master authority** by an authority-signed `MASTER` credential, never by copying a key; only the unit authority makes or removes a Master (`src/unit/runtime.ts`, `changeRole`, `admit`). Tests: `src/unit/keyManagement.test.ts`.
 * **Revocation replaces the unit key** for everyone who remains (`UNIT_KEY_ROTATED`). Tests: `keyManagement.test.ts`.

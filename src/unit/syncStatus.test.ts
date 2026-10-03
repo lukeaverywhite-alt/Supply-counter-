@@ -9,7 +9,8 @@ import { MemoryLedgerStore, type StoredEnvelope } from './ledgerStore'
 import { UnitRuntime } from './runtime'
 import { LOST_AFTER_MS, LOST_AFTER_SCANS } from './transport'
 import { syncLabel, syncOutcome } from './screens/labels'
-import { acceptAdmission, createJoiningDevice, createMasterDevice, encodeJoinRequest, type UnlockedDevice } from './vault'
+import { joinByTicket } from '../test/joinByTicket'
+import { createMasterDevice, type UnlockedDevice } from './vault'
 
 const storage = () => { const values = new Map<string, string>(); return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) }, removeItem: (key: string) => { values.delete(key) } } }
 const open = (device: UnlockedDevice, chain: FakeChain, ledger: MemoryLedgerStore = new MemoryLedgerStore()) => UnitRuntime.open(device, { api: chain, ledger, walletStore: new MemoryWalletStateStore(), storage: storage() })
@@ -39,10 +40,7 @@ async function unitWithOfficer(chain: FakeChain) {
   const masterDevice = await master()
   chain.fund(masterDevice.record.walletAddress, 200_000, { confirmed: true })
   const a = await open(masterDevice, chain)
-  const pending = await createJoiningDevice({ passphrase: 'another pass 77', displayName: 'Officer B' }, storage())
-  const admitted = await a.admit(await encodeJoinRequest(pending), 'SUPPLY_OFFICER', { topUpSatoshis: 20_000 })
-  const b = await open(await acceptAdmission(pending, admitted.admissionCode, storage()), chain)
-  await b.confirmAdmission()
+  const { runtime: b } = await joinByTicket(a, chain, 'Officer B', 'SUPPLY_OFFICER')
   await a.syncNow(); chain.mine(); await b.syncNow()
   return { a, b, masterDevice }
 }

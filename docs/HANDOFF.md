@@ -29,7 +29,7 @@ maps every section to code and tests). Main capabilities:
   * Device notifications: work only while the app is open or in a background tab, since there is no server.
 * **Access:**
   * Master, Instructor, Supply Officer and Supply Assistant roles.
-  * Admission by a public join code and a device-bound admission QR image (shareable remotely; text fallback retained).
+  * Admission by an invitation ticket (ADR 012): a Master, or an Instructor for cadet roles, makes a one-week, one-use ticket shown as a QR and a short code; the new device redeems it on its own from the chain (Command Center → Tickets; the gate's "I have a ticket"). The old join code and admission code are gone.
   * Role changes.
   * Delegated Master authority.
   * Removal that gives everyone who remains a new unit key.

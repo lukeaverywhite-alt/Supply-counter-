@@ -1,21 +1,26 @@
-import { AuthorizationService, ROLE_PERMISSIONS, issueCredential, issueRevocation } from '../auth/authorization'
+import { P2PKH, Transaction } from '@bsv/sdk'
+import { AuthorizationService, ROLE_PERMISSIONS, issueCredential, issueRevocation, ticketRuleViolation } from '../auth/authorization'
 import type { ChainApi, WalletBalance, WalletStateStore } from '../chain/types'
-import { DeviceWallet } from '../chain/wallet'
+import { DeviceWallet, InsufficientFundsError } from '../chain/wallet'
 import { IndexedDbWalletStateStore } from '../chain/walletStore'
 import { WhatsOnChainApi } from '../chain/woc'
 import { canonicalize } from '../distributed/canonical'
 import { DistributedAppController, type ArgusAppProjection } from '../distributed/appIntegration'
 import { isAuthorBoundEventId, unsignedEventJson } from '../distributed/replica'
 import type { ArgusRole, AuthorityCredential, SignedArgusEvent } from '../distributed/types'
+import { decodeTicketCode, encodeTicketCode, makeTicketSecret } from '../identity/ticketCode'
+import { deriveTicketKeys, newTicketEcdhKeyPair, newTicketId } from '../identity/ticketKeys'
 import { unsignedKeyGrantFields, unwrapEpochKeyFromGrant, wrapEpochKeyForGrant } from '../private-sync/keyGrant'
-import { parseKeyGrantRecord } from '../private-sync/schema'
-import type { KeyGrantRecord } from '../private-sync/types'
+import { TICKET_LIFETIME_MS, parseKeyGrantRecord } from '../private-sync/schema'
+import { sealTicketRecord } from '../private-sync/ticketRecord'
+import { listTickets } from '../private-sync/tickets'
+import type { KeyGrantRecord, TicketCancellation, TicketFundingOutpoint, TicketInvitation, TicketPackage } from '../private-sync/types'
 import { MemoryRepository } from '../storage/repository'
 import { IndexedDbLedgerStore, type LedgerStore } from './ledgerStore'
 import { UnitEventSyncProvider } from './syncProvider'
 import { ChainTransport, type TransportStatus } from './transport'
 import { openEnvelope } from './envelope'
-import { admitMember, exportRecoveryFile, installUnitKey, newUnitKey, recoveryFingerprint, recoveryGranteeIdentity, setCurrentEpoch, updateDeviceCredential, type UnlockedDevice } from './vault'
+import { exportRecoveryFile, forgetTicketSecret, installUnitKey, newUnitKey, rawUnitKeys, readTicketSecret, recoveryFingerprint, recoveryGranteeIdentity, sealTicketSecret, setCurrentEpoch, ticketGranteeIdentity, updateDeviceCredential, type UnlockedDevice } from './vault'
 
 export type UnitRuntimeOptions = {
   api?: ChainApi
@@ -29,6 +34,12 @@ export type UnitStatus = TransportStatus & { unitId: string; unitName: string; r
 /** Default satoshis the Master sends a newly admitted member so they can publish right away (≈ 400+ records at 1 sat/kB). Editable at admission. */
 export const DEFAULT_MEMBER_TOP_UP_SATOSHIS = 2_000
 export type KeyRotationResult = { epochId: string; recipients: number; missing: string[] }
+/** What the issuer gets back for a new ticket: the code to hand to the named person (or show as a QR), and when it runs out. */
+export type IssuedTicket = { ticketId: string; code: string; displayName: string; role: ArgusRole; ticketAddress: string; issuedAt: string; expiresAt: string; funding: TicketFundingOutpoint }
+/** CANCELLED: the network accepted the cancelling transaction and the unit has been told. PENDING: it is saved and goes out when the network is reachable; call cancelTicket again then. */
+export type TicketCancelResult = { status: 'CANCELLED' | 'PENDING'; txid: string }
+/** Satoshis kept back beyond the starter satoshis when making a ticket, for the fees of its record and of the fact that announces it. */
+export const TICKET_FEE_RESERVE_SATOSHIS = 50
 
 const importEcdhPublic = (spki: string) => { const normalized = spki.replaceAll('-', '+').replaceAll('_', '/'); const bytes = Uint8Array.from(atob(normalized + '='.repeat((4 - normalized.length % 4) % 4)), c => c.charCodeAt(0)); return crypto.subtle.importKey('spki', bytes, { name: 'ECDH', namedCurve: 'P-256' }, false, []) }
 
@@ -144,10 +155,11 @@ export class UnitRuntime {
     if (!credential || credential.credentialId !== me.credentialId || credential.subjectPublicIdentity !== record.signingIdentity || !this.authorization.hasCredential(credential.credentialId)) return
     await updateDeviceCredential(this.device, credential, this.storage)
   }
-  /** Opens this device's copy of every unit key generation it has been given (directly, or through the unit recovery key). */
+  /** Opens this device's copy of every unit key generation it has been given (directly, through the unit recovery key, or to the ticket it joined by). */
   private async installGrantedKeys(projection: ArgusAppProjection) {
     let installed = 0
     const recoveryId = this.device.record.recoveryPublicKey && this.device.recoveryEcdhPrivateKey ? recoveryGranteeIdentity(await recoveryFingerprint(this.device.record.recoveryPublicKey)) : undefined
+    const { ticketEcdh } = this.device, ticketId = ticketEcdh ? ticketGranteeIdentity(ticketEcdh.ticketId) : undefined
     for (const epoch of projection.keyEpochs) {
       if (this.device.unitKeys.has(epoch.epochId)) continue
       const event = projection.events.find(stored => stored.event.eventId === epoch.eventId)?.event
@@ -155,10 +167,11 @@ export class UnitRuntime {
       if (!event || !payload?.grantorEcdhPublicKey || !Array.isArray(payload.grants)) continue
       const grants = payload.grants.map(grant => parseKeyGrantRecord(grant))
       const mine = grants.find(grant => grant.granteePublicIdentity === this.device.record.signingIdentity), viaRecovery = !mine && recoveryId ? grants.find(grant => grant.granteePublicIdentity === recoveryId) : undefined
-      const grant = mine ?? viaRecovery
+      const viaTicket = !mine && !viaRecovery && ticketId ? grants.find(grant => grant.granteePublicIdentity === ticketId) : undefined
+      const grant = mine ?? viaRecovery ?? viaTicket
       if (!grant || grant.grantorPublicIdentity !== event.actorPublicIdentity || !(await this.device.identity.verify(canonicalize(unsignedKeyGrantFields(grant)), grant.signature, grant.grantorPublicIdentity))) continue
       try {
-        const key = await unwrapEpochKeyFromGrant(grant, { granteeEcdhPrivateKey: mine ? this.device.ecdhPrivateKey : this.device.recoveryEcdhPrivateKey!, grantorEcdhPublicKey: await importEcdhPublic(payload.grantorEcdhPublicKey), extractable: true })
+        const key = await unwrapEpochKeyFromGrant(grant, { granteeEcdhPrivateKey: mine ? this.device.ecdhPrivateKey : viaRecovery ? this.device.recoveryEcdhPrivateKey! : ticketEcdh!.privateKey, grantorEcdhPublicKey: await importEcdhPublic(payload.grantorEcdhPublicKey), extractable: true })
         await installUnitKey(this.device, epoch.epochId, key, { makeCurrent: false }, this.storage)
         installed++
       } catch { /* wrapped for a different key pair: not this device's to open */ }
@@ -173,30 +186,6 @@ export class UnitRuntime {
 
   // ---------- Master actions ----------
   private requireMaster() { if (this.device.record.role !== 'MASTER' || this.revoked) throw new Error('Only a unit Master can do this.') }
-  /**
-   * Master only. Admits the person behind a join code: returns the admission code to hand them,
-   * publishes the admission to the whole unit (encrypted), and optionally sends their wallet some
-   * testnet satoshis so they can publish immediately. Making someone a Master needs the unit authority.
-   */
-  async admit(joinCode: string, role: ArgusRole, options: { expiresAt?: string; displayName?: string; topUpSatoshis?: number } = {}) {
-    this.requireMaster()
-    const result = await admitMember(this.device, joinCode, role, { ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}), ...(options.displayName ? { displayName: options.displayName } : {}), storage: this.storage })
-    await this.controller.recordAdmission({ credential: result.credential, displayName: result.displayName, walletAddress: result.walletAddress, ecdhPublicKey: result.ecdhPublicKey })
-    let topUpTxid: string | undefined, topUpError: string | undefined
-    if (options.topUpSatoshis) { try { topUpTxid = await this.sendSatoshis(result.walletAddress, options.topUpSatoshis) } catch (error) { topUpError = error instanceof Error ? error.message : 'Top-up failed.' } }
-    void this.transport.poke()
-    return { ...result, ...(topUpTxid ? { topUpTxid } : {}), ...(topUpError ? { topUpError } : {}) }
-  }
-  /** Confirms that this device, not merely the Master, opened its invitation successfully. */
-  async confirmAdmission() {
-    const credentialId = this.device.record.credential?.credentialId
-    if (!credentialId) throw new Error('This device has no admission credential to confirm.')
-    const projection = await this.controller.project()
-    if (projection.events.some(record => record.event.eventType === 'ADMISSION_CONFIRMED' && record.event.actorPublicIdentity === this.device.record.signingIdentity && record.event.payload.credentialId === credentialId)) return projection
-    const confirmed = await this.controller.confirmAdmission(credentialId)
-    void this.transport.poke()
-    return confirmed
-  }
   private signerFor(targetRole: ArgusRole, newRole?: ArgusRole) {
     // Masters are made and removed only with the unit authority key; everyone else by any Master's own key.
     if (targetRole === 'MASTER' || newRole === 'MASTER') { if (!this.device.authoritySigner) throw new Error(newRole === 'MASTER' ? 'Only the unit authority (the original or a recovered Master device) can make someone a Master.' : 'Only the unit authority (the original or a recovered Master device) can remove a Master.'); return this.device.authoritySigner }
@@ -234,8 +223,9 @@ export class UnitRuntime {
   }
   /**
    * Master only: creates a new unit key and hands one wrapped copy to every active member (and to
-   * the unit recovery key). The announcement is encrypted under the old key; members who were
-   * removed can read the announcement but cannot open any copy, nor anything written afterwards.
+   * the unit recovery key, and to every ticket still open, for whoever redeems it). The announcement
+   * is encrypted under the old key; members who were removed can read the announcement but cannot
+   * open any copy, nor anything written afterwards.
    */
   async rotateUnitKey(reason: 'REVOCATION' | 'MANUAL' = 'MANUAL'): Promise<KeyRotationResult> {
     this.requireMaster()
@@ -246,11 +236,14 @@ export class UnitRuntime {
     const grants: KeyGrantRecord[] = [await wrap(record.signingIdentity, record.ecdhPublicKey)]
     for (const member of recipients) if (member.ecdhPublicKey && member.publicIdentity !== record.signingIdentity) grants.push(await wrap(member.publicIdentity, member.ecdhPublicKey))
     if (projection.recoveryKey) grants.push(await wrap(recoveryGranteeIdentity(projection.recoveryKey.fingerprint), projection.recoveryKey.publicKey))
+    const people = grants.length - (projection.recoveryKey ? 1 : 0)
+    // A ticket out now carries only the keys made before it: one rotated now reaches its person through the ticket's own ECDH key (ADR 012).
+    for (const ticket of listTickets(projection.tickets).filter(entry => entry.status === 'open')) grants.push(await wrap(ticketGranteeIdentity(ticket.ticketId), ticket.ticketEcdhPublicKey))
     await this.controller.rotateUnitKey({ epochId, previousEpoch: unit.currentEpoch, reason, grants, grantorEcdhPublicKey: record.ecdhPublicKey })
     await installUnitKey(this.device, epochId, raw, { makeCurrent: true }, this.storage)
     void this.transport.poke()
     this.emitStatus()
-    return { epochId, recipients: grants.length - (projection.recoveryKey ? 1 : 0), missing }
+    return { epochId, recipients: people, missing }
   }
   /**
    * Original (or recovered) Master only: an encrypted recovery file for getting the unit authority
@@ -268,6 +261,88 @@ export class UnitRuntime {
     void this.transport.poke()
     return result.fileText
   }
+  // ---------- admission tickets (docs/adr/012-admission-by-invitation-ticket.md) ----------
+  /** Who may sign a ticket for this role: the unit authority for a Master ticket, otherwise the authority if this device holds it, else the person's own key. */
+  private ticketSigner(role: ArgusRole) {
+    if (role === 'MASTER') { if (!this.device.authoritySigner) throw new Error('Only the unit authority (the original or a recovered Master device) can make a Master ticket.'); return this.device.authoritySigner }
+    return this.device.authoritySigner ?? this.device.identity
+  }
+  private requireTicketIssuer(role: ArgusRole) {
+    if (this.revoked) throw new Error('Your access to this unit was removed.')
+    const violation = ticketRuleViolation(this.device.record.role as ArgusRole, role); if (violation) throw new Error(violation)
+  }
+  /**
+   * Master, or Instructor for the cadet roles only (D4, enforced again by every device that folds the ticket). Makes a one-week,
+   * one-use ticket for one named person: funds the ticket's address with the starter satoshis, publishes the encrypted TICKET
+   * record there (a signed invitation, the unit's keys, the issuer's credential chain), seals the ticket's code in this device's vault
+   * so the issuer can cancel it, and records TICKET_ISSUED in the unit's history. Everything is built and saved on this device
+   * before anything is sent, so an unreachable network only delays it. Refused, with nothing left behind, when the wallet cannot pay.
+   */
+  async issueTicket(displayName: string, role: ArgusRole, options: { satoshis?: number } = {}): Promise<IssuedTicket> {
+    const name = displayName.trim(); if (!name || name.length > 60) throw new Error('Enter the person’s name or call sign (1–60 characters).')
+    this.requireTicketIssuer(role)
+    const signer = this.ticketSigner(role), satoshis = options.satoshis ?? DEFAULT_MEMBER_TOP_UP_SATOSHIS
+    if (!Number.isSafeInteger(satoshis) || satoshis < 100) throw new Error('A ticket needs at least 100 starter satoshis.')
+    const balance = await this.wallet.refresh().catch(() => this.wallet.balance())
+    if (balance.spendable < satoshis + TICKET_FEE_RESERVE_SATOSHIS) throw new InsufficientFundsError(this.wallet.address, balance.spendable, satoshis + TICKET_FEE_RESERVE_SATOSHIS)
+    const { record } = this.device, unit = record.unit!, epochKeys = await rawUnitKeys(this.device)
+    if (!epochKeys.some(key => key.epochId === unit.currentEpoch)) throw new Error(`This device is missing unit key ${unit.currentEpoch}.`)
+    const secret = makeTicketSecret(), code = encodeTicketCode(secret), keys = await deriveTicketKeys(secret), ticketId = newTicketId(), ecdh = await newTicketEcdhKeyPair()
+    // Sealed before any money moves: whatever happens next, the funding can be recovered by cancelling.
+    await sealTicketSecret(this.device, ticketId, code, this.storage)
+    let fundingQueued = false
+    try {
+      const funding = await this.wallet.prepareTransfer(keys.address, satoshis)
+      fundingQueued = true
+      if (Transaction.fromHex(funding.hex).outputs[0]?.lockingScript.toHex() !== new P2PKH().lock(keys.address).toHex()) throw new Error('The ticket’s funding output is not where it was expected.')
+      const issuedAt = new Date().toISOString(), expiresAt = new Date(Date.parse(issuedAt) + TICKET_LIFETIME_MS).toISOString()
+      const unsignedInvitation = { invitationVersion: 1 as const, ticketId, unitId: unit.unitId, displayName: name, role, issuedAt, expiresAt, ticketPublicKey: keys.publicIdentity, funding: { txid: funding.txid, vout: 0, satoshis }, issuedBy: await signer.getPublicIdentity() }
+      const invitation: TicketInvitation = { ...unsignedInvitation, signature: await signer.sign(canonicalize(unsignedInvitation)) }
+      const authoritySigned = invitation.issuedBy === unit.authorityIdentity
+      const ticketPackage: TicketPackage = { kind: 'TICKET', packageVersion: 1, invitation, issuerDisplayName: record.displayName, issuerCredentials: authoritySigned ? [] : [record.credential!, ...(record.issuerCredential ? [record.issuerCredential] : [])], unit: { unitId: unit.unitId, unitName: unit.unitName, authorityIdentity: unit.authorityIdentity }, currentEpoch: unit.currentEpoch, epochKeys, ticketEcdhPrivateKey: ecdh.privateJwk }
+      await this.wallet.prepareRecords([{ kind: 'T', payload: await sealTicketRecord(keys.wrappingKey, keys.address, ticketPackage) }], keys.address, [ticketId])
+      this.emit(await this.controller.recordTicketIssued({ ticketId, ticketAddress: keys.address, ticketEcdhPublicKey: ecdh.publicKey, displayName: name, role, issuedAt, expiresAt, funding: invitation.funding }))
+      void this.transport.poke()
+      return { ticketId, code, displayName: name, role, ticketAddress: keys.address, issuedAt, expiresAt, funding: invitation.funding }
+    } catch (error) {
+      // Nothing was funded yet (the first step failed): forget the code. Once the funding is queued the code stays sealed so it can be cancelled.
+      if (!fundingQueued) forgetTicketSecret(this.device, ticketId, this.storage)
+      throw error
+    }
+  }
+  /** Every ticket the unit knows of, with status (open, redeemed, cancelled, expired) and days left, open ones first. The clock is only for display. */
+  async tickets(now: Date = new Date()) { return listTickets((await this.controller.project()).tickets, now) }
+  /**
+   * Cancels an open ticket (reason EXPIRED when sweeping one that ran out): spends its funding output with a signed TICKET_CANCELLED
+   * record at the ticket address, which sends the starter satoshis back here and makes the network refuse any redemption. Only the
+   * device that made the ticket holds the key. The network decides a race with a redemption: the loser is told so in words.
+   * With no network the cancellation is saved and the result is PENDING; call again later to finish it (it is never built twice).
+   */
+  async cancelTicket(ticketId: string, reason: TicketCancellation['reason'] = 'CANCELLED'): Promise<TicketCancelResult> {
+    const ticket = (await this.controller.project()).tickets.find(candidate => candidate.ticketId === ticketId)
+    if (!ticket) throw new Error('That ticket is not in this unit’s list.')
+    if (ticket.issuedBy !== this.device.record.signingIdentity) throw new Error('Only the person who made a ticket can cancel it, on the device that made it.')
+    if (ticket.status !== 'OPEN') throw new Error(`This ticket is already ${ticket.status === 'REDEEMED' ? 'used' : 'cancelled'}.`)
+    this.requireTicketIssuer(ticket.role)
+    const code = await readTicketSecret(this.device, ticketId)
+    if (!code) throw new Error('This device no longer holds that ticket’s key, so it cannot cancel it. The ticket runs out by itself after a week.')
+    const keys = await deriveTicketKeys(decodeTicketCode(code)), marker = `cancel:${ticketId}`
+    let txid = (await this.wallet.pending()).find(tx => tx.correlationIds.includes(marker))?.txid
+    if (!txid) {
+      const signer = this.ticketSigner(ticket.role), unsigned = { kind: 'TICKET_CANCELLED' as const, cancellationVersion: 1 as const, ticketId, unitId: this.device.record.unit!.unitId, reason, cancelledAt: new Date().toISOString(), issuedBy: await signer.getPublicIdentity() }
+      const cancellation: TicketCancellation = { ...unsigned, signature: await signer.sign(canonicalize(unsigned)) }
+      txid = (await this.wallet.prepareSpendOfOutpoint({ key: keys.privateKey, outpoint: ticket.funding, records: [{ kind: 'T', payload: await sealTicketRecord(keys.wrappingKey, keys.address, cancellation) }], markerAddress: keys.address, correlationIds: [marker] })).txid
+    }
+    const flushed = await this.wallet.flush()
+    // The transport may have sent it first: not pending any more and still known to the wallet means the network took it.
+    if ((await this.wallet.pending()).some(tx => tx.txid === txid)) return { status: 'PENDING', txid }
+    if (!(await this.wallet.ownTxHex(txid))) throw new Error(`The ticket could not be cancelled: the network refused it${flushed.rolledBack.find(entry => entry.txid === txid)?.reason ? ` (${flushed.rolledBack.find(entry => entry.txid === txid)!.reason})` : ''}. It has probably already been used.`)
+    this.emit(await this.controller.recordTicketCancelled({ ticketId, reason, cancelledAt: new Date().toISOString(), spendTxid: txid }))
+    forgetTicketSecret(this.device, ticketId, this.storage)
+    void this.transport.poke()
+    return { status: 'CANCELLED', txid }
+  }
+
   /** Sends testnet satoshis from this device's wallet (e.g. the Master topping up a member). */
   async sendSatoshis(address: string, satoshis: number) {
     const prepared = await this.wallet.prepareTransfer(address, satoshis)

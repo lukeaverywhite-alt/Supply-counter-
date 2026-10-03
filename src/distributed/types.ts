@@ -29,7 +29,7 @@ export type AuthorityRevocation = {
   signature: string
 }
 
-export type DistributedEventType = 'INVENTORY_ITEM_CREATED' | 'INVENTORY_ITEM_UPDATED' | 'INVENTORY_RECEIVED' | 'CATALOG_ITEM_CREATED' | 'CATALOG_ITEM_UPDATED' | 'CATALOG_SIZES_ADDED' | 'ITEM_ISSUED' | 'ITEM_RETURNED' | 'INVENTORY_COUNT_SUBMITTED' | 'COUNT_SESSION_CREATED' | 'COUNT_CONTRIBUTED' | 'COUNT_CORRECTED' | 'COUNT_RECOUNTED' | 'COUNT_SESSION_SUBMITTED' | 'COUNT_SESSION_RECONCILED' | 'COUNT_SESSION_CANCELLED' | 'AUTHORITY_GRANTED' | 'ADMISSION_CONFIRMED' | 'AUTHORITY_REVOKED' | 'ROLE_CHANGED' | 'CONFLICT_DETECTED' | 'CONFLICT_RESOLVED' | 'RECORD_CORRECTED' | 'CADET_CREATED' | 'CADET_UPDATED' | 'BUNDLE_CREATED' | 'BUNDLE_UPDATED' | 'BUNDLE_DEACTIVATED' | 'STILL_NEEDED_ADDED' | 'STILL_NEEDED_UPDATED' | 'STILL_NEEDED_CANCELLED' | 'STILL_NEEDED_FULFILLED' | 'CALENDAR_EVENT_CREATED' | 'CALENDAR_EVENT_UPDATED' | 'CALENDAR_TASK_ADDED' | 'TASK_COMPLETED' | 'CALENDAR_ATTENDEES_ADDED' | 'CALENDAR_ATTENDEES_REMOVED' | 'CALENDAR_BUNDLES_ADDED' | 'CALENDAR_BUNDLES_REMOVED' | 'CALENDAR_TASK_UPDATED' | 'CALENDAR_TASK_REMOVED' | 'PROPERTY_CORRECTED' | 'ANNUAL_ROLLOVER_COMPLETED' | 'CADETS_IMPORTED' | 'UNIT_KEY_ROTATED' | 'RECOVERY_KEY_REGISTERED' | 'COUNT_SESSION_REOPENED'
+export type DistributedEventType = 'INVENTORY_ITEM_CREATED' | 'INVENTORY_ITEM_UPDATED' | 'INVENTORY_RECEIVED' | 'CATALOG_ITEM_CREATED' | 'CATALOG_ITEM_UPDATED' | 'CATALOG_SIZES_ADDED' | 'ITEM_ISSUED' | 'ITEM_RETURNED' | 'INVENTORY_COUNT_SUBMITTED' | 'COUNT_SESSION_CREATED' | 'COUNT_CONTRIBUTED' | 'COUNT_CORRECTED' | 'COUNT_RECOUNTED' | 'COUNT_SESSION_SUBMITTED' | 'COUNT_SESSION_RECONCILED' | 'COUNT_SESSION_CANCELLED' | 'AUTHORITY_GRANTED' | 'ADMISSION_CONFIRMED' | 'AUTHORITY_REVOKED' | 'ROLE_CHANGED' | 'CONFLICT_DETECTED' | 'CONFLICT_RESOLVED' | 'RECORD_CORRECTED' | 'CADET_CREATED' | 'CADET_UPDATED' | 'BUNDLE_CREATED' | 'BUNDLE_UPDATED' | 'BUNDLE_DEACTIVATED' | 'STILL_NEEDED_ADDED' | 'STILL_NEEDED_UPDATED' | 'STILL_NEEDED_CANCELLED' | 'STILL_NEEDED_FULFILLED' | 'CALENDAR_EVENT_CREATED' | 'CALENDAR_EVENT_UPDATED' | 'CALENDAR_TASK_ADDED' | 'TASK_COMPLETED' | 'CALENDAR_ATTENDEES_ADDED' | 'CALENDAR_ATTENDEES_REMOVED' | 'CALENDAR_BUNDLES_ADDED' | 'CALENDAR_BUNDLES_REMOVED' | 'CALENDAR_TASK_UPDATED' | 'CALENDAR_TASK_REMOVED' | 'PROPERTY_CORRECTED' | 'ANNUAL_ROLLOVER_COMPLETED' | 'CADETS_IMPORTED' | 'UNIT_KEY_ROTATED' | 'RECOVERY_KEY_REGISTERED' | 'COUNT_SESSION_REOPENED' | 'TICKET_ISSUED' | 'TICKET_CANCELLED' | 'TICKET_REDEEMED'
 export type LocalSyncStatus = 'LOCAL' | 'QUEUED' | 'SYNCING' | 'SYNCHRONIZED' | 'CONFLICT' | 'FAILED'
 
 export type UnsignedArgusEvent = {
@@ -96,6 +96,12 @@ export type AdmissionConfirmationProjection = { publicIdentity: string; credenti
  * itself encrypted under the previous key, so a removed member can read neither.
  */
 export type KeyEpochProjection = { epochId: string; previousEpoch: string; reason: 'REVOCATION' | 'MANUAL'; rotatedBy: string; rotatedAt: string; eventId: string; recipients: string[] }
+/**
+ * One admission ticket (ADR 012) as the unit's history shows it, folded from the TICKET_ISSUED, TICKET_CANCELLED and
+ * TICKET_REDEEMED facts: the first of a cancellation and a redemption in the unit's order closes it. It holds no secret.
+ * Whether an OPEN ticket has run out of time depends on the viewer's clock, so the fold never decides it (see listTickets).
+ */
+export type TicketProjection = { ticketId: string; ticketAddress: string; ticketEcdhPublicKey: string; displayName: string; role: ArgusRole; issuedAt: string; expiresAt: string; funding: { txid: string; vout: number; satoshis: number }; issuedBy: string; issuedEventId: string; status: 'OPEN' | 'REDEEMED' | 'CANCELLED'; cancelReason?: 'CANCELLED' | 'EXPIRED'; cancelledAt?: string; spendTxid?: string; redeemedAt?: string; redeemedBy?: string }
 /** Public half of the unit recovery key; every rotation also wraps the new key to it so a recovery file never goes stale. */
 export type RecoveryKeyProjection = { publicKey: string; fingerprint: string; registeredBy: string; registeredAt: string; eventId: string }
 

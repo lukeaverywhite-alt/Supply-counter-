@@ -10,7 +10,7 @@
  *   0x6a OP_RETURN
  *   push "ARGUS"          protocol tag (ASCII)
  *   push [0x02]           format version as a one-byte DATA push (never OP_2)
- *   push [kind]           'E' (encrypted event envelope) or 'G' (key grant)
+ *   push [kind]           'E' (encrypted event envelope), 'G' (key grant) or 'T' (admission ticket record)
  *   push payload          opaque, already-encrypted bytes
  */
 
@@ -32,7 +32,7 @@ const TESTNET_P2PKH_PREFIX = 0x6f
 const P2PKH_HASH_BYTES = 20
 
 const PROTOCOL_TAG_BYTES: readonly number[] = Array.from(ARGUS_PROTOCOL_TAG, (character) => character.charCodeAt(0))
-const RECORD_KINDS: readonly ArgusRecordKind[] = ['E', 'G']
+const RECORD_KINDS: readonly ArgusRecordKind[] = ['E', 'G', 'T']
 
 /** Serializes one data push with the smallest correct push opcode for its length. */
 function pushData(bytes: Uint8Array): number[] {
@@ -62,7 +62,7 @@ export function isUint8Array(value: unknown): value is Uint8Array {
 /** Throws unless the record is something this format can carry. */
 export function assertValidRecord(record: ArgusRecord): void {
   if (!RECORD_KINDS.includes(record.kind)) {
-    throw new Error(`Unknown A.R.G.U.S. record kind "${String(record.kind)}"; expected 'E' or 'G'.`)
+    throw new Error(`Unknown A.R.G.U.S. record kind "${String(record.kind)}"; expected 'E', 'G' or 'T'.`)
   }
   if (!isUint8Array(record.payload)) {
     throw new Error('A.R.G.U.S. record payload must be a Uint8Array.')
@@ -151,7 +151,7 @@ export function decodeArgusRecordScript(script: Uint8Array): ArgusRecord | undef
   if (version.length !== 1 || version[0] !== ARGUS_RECORD_FORMAT_VERSION) return undefined
   if (kind.length !== 1) return undefined
   const kindChar = String.fromCharCode(kind[0])
-  if (kindChar !== 'E' && kindChar !== 'G') return undefined
+  if (kindChar !== 'E' && kindChar !== 'G' && kindChar !== 'T') return undefined
   // Copy so callers never hold a view into the whole transaction buffer.
   return { kind: kindChar, payload: payload.slice() }
 }

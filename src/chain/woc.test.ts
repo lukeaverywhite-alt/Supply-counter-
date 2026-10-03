@@ -79,6 +79,13 @@ describe('construction', () => {
     expect(strictFetch).toHaveBeenCalledWith(`${BASE}/chain/info`, expect.anything())
   })
 
+  it('reads the chain’s own time (the median time of the latest blocks) for checks a phone clock could cheat', async () => {
+    const { api } = harness(() => [json({ blocks: 7, mediantime: 1_790_000_000 }), json({ blocks: 7 }), json({ blocks: 7, mediantime: 'soon' })])
+    await expect(api.tipTime()).resolves.toBe(new Date(1_790_000_000_000).toISOString())
+    await expect(api.tipTime()).resolves.toBeUndefined()
+    await expect(api.tipTime()).resolves.toBeUndefined()
+  })
+
   it('refuses a mainnet base URL', () => {
     expect(() => new WhatsOnChainApi({ baseUrl: 'https://api.whatsonchain.com/v1/bsv/main' })).toThrow(/Mainnet/)
   })

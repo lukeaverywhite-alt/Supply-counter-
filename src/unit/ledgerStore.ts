@@ -11,8 +11,12 @@ import type { UnitEnvelope } from './envelope'
  *         CONFIRMED  seen on the anchor history (height 0 = mempool, > 0 = mined)
  */
 export type EnvelopeStatus = 'QUEUED' | 'PUBLISHING' | 'BROADCAST' | 'CONFIRMED'
-/** alternates: other copies seen on chain under the same event ID that could not be checked yet (no key for their generation); the valid one wins when opened. */
-export type StoredEnvelope = { eventId: string; envelope: UnitEnvelope; origin: 'local' | 'chain'; status: EnvelopeStatus; txid?: string; height?: number; addedAt: string; lastError?: string; alternates?: Array<{ envelope: UnitEnvelope; txid: string; height: number }> }
+/**
+ * alternates: other copies seen on chain under the same event ID that could not be checked yet (no key for their generation); the valid one wins when opened.
+ * spends: the outpoints (`txid:vout`) spent by the transactions this exact envelope arrived in, a chain fact the same for every device: a
+ * TICKET_REDEEMED record counts only from the transaction that spends its ticket's funding output (ADR 012).
+ */
+export type StoredEnvelope = { eventId: string; envelope: UnitEnvelope; origin: 'local' | 'chain'; status: EnvelopeStatus; txid?: string; height?: number; addedAt: string; lastError?: string; spends?: string[]; alternates?: Array<{ envelope: UnitEnvelope; txid: string; height: number; spends?: string[] }> }
 export const MAX_ALTERNATES = 4
 export type SeenTransaction = { txid: string; height: number; eventIds: string[]; scannedAt: string }
 export type ScanCursor = { confirmedHeight: number; lastScanAt?: string; lastError?: string }
@@ -22,7 +26,7 @@ export interface LedgerStore {
   envelope(eventId: string): Promise<StoredEnvelope | undefined>
   /** Inserts when new; never replaces an existing envelope's bytes (exact-once identity). Returns false if the event ID already exists. */
   addEnvelope(value: StoredEnvelope): Promise<boolean>
-  updateEnvelopes(eventIds: string[], change: Partial<Pick<StoredEnvelope, 'status' | 'txid' | 'height' | 'lastError'>> & { clearTxid?: boolean }): Promise<void>
+  updateEnvelopes(eventIds: string[], change: Partial<Pick<StoredEnvelope, 'status' | 'txid' | 'height' | 'lastError' | 'spends'>> & { clearTxid?: boolean }): Promise<void>
   /** Keeps another on-chain copy under an existing event ID (bounded), for when the stored one turns out to be a forgery. */
   addAlternate(eventId: string, alternate: NonNullable<StoredEnvelope['alternates']>[number]): Promise<void>
   /** Replaces a stored record wholesale: only used to promote a verified alternate over a forged copy. */

@@ -67,6 +67,14 @@ describe('encodeArgusRecordScript', () => {
     expect(Array.from(decoded.payload)).toEqual([0x78])
   })
 
+  it('carries an admission ticket record under kind T and decodes it back', () => {
+    const script = encodeArgusRecordScript({ kind: 'T', payload: Uint8Array.of(7, 8) })
+    expect(script.toHex()).toBe(`${PREFIX_HEX}0154${'020708'}`)
+    const [decoded] = decodeArgusRecords(txWithScripts([script]))
+    expect(decoded).toMatchObject({ kind: 'T', vout: 0 })
+    expect(Array.from(decoded.payload)).toEqual([7, 8])
+  })
+
   it('accepts a Node Buffer payload', () => {
     const script = encodeArgusRecordScript({ kind: 'G', payload: Buffer.from([1, 2]) })
     expect(script.toHex()).toBe(`${PREFIX_HEX}0147${'020102'}`)

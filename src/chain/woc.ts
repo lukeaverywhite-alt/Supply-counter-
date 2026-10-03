@@ -271,6 +271,12 @@ export class WhatsOnChainApi implements ChainApi {
     return body.blocks
   }
 
+  /** The median time of the latest blocks (`mediantime`, seconds): a lower bound on the chain's time that no phone clock can move. */
+  async tipTime(): Promise<string | undefined> {
+    const body = await this.getJson('/chain/info')
+    return isRecord(body) && isNonNegativeInteger(body.mediantime) ? new Date(body.mediantime * 1000).toISOString() : undefined
+  }
+
   /** Confirmed history entries: valid txids with a positive height, from fromHeight on, ascending, de-duplicated. */
   private historyItems(items: unknown[], fromHeight: number | undefined): ChainHistoryItem[] {
     const byTxid = new Map<string, ChainHistoryItem>()

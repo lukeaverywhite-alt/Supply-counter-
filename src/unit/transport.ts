@@ -1,3 +1,4 @@
+import { Transaction } from '@bsv/sdk'
 import { unitAnchorAddress } from '../blockchain/anchor'
 import { MAX_RECORDS_PER_TX, decodeArgusRecords } from '../chain/codec'
 import type { ChainApi, WalletBalance } from '../chain/types'
@@ -236,8 +237,10 @@ export class ChainTransport {
       }
       const hex = await wallet.ownTxHex(item.txid) ?? await api.txHex(item.txid)
       const eventIds: string[] = []
-      let records: ReturnType<typeof decodeArgusRecords> = []
+      let records: ReturnType<typeof decodeArgusRecords> = [], spent: string[] | undefined
       try { records = decodeArgusRecords(hex) } catch { /* not a parseable transaction: remember it so it is not refetched */ }
+      // The outputs this transaction spends travel with its envelopes: a ticket's redemption counts only from the spend of its funding.
+      const spends = () => spent ??= (() => { try { return Transaction.fromHex(hex).inputs.map(input => `${input.sourceTXID}:${input.sourceOutputIndex}`) } catch { return [] } })()
       for (const record of records) {
         if (record.kind !== 'E') continue
         let envelope
@@ -247,13 +250,13 @@ export class ChainTransport {
         eventIds.push(envelope.eventId)
         const existing = await store.envelope(envelope.eventId)
         if (existing) {
-          if (canonicalize(existing.envelope) === canonicalize(envelope)) { await store.updateEnvelopes([envelope.eventId], { status: 'CONFIRMED', txid: item.txid, height: item.height, lastError: undefined }); changed.add(envelope.eventId) }
+          if (canonicalize(existing.envelope) === canonicalize(envelope)) { await store.updateEnvelopes([envelope.eventId], { status: 'CONFIRMED', txid: item.txid, height: item.height, lastError: undefined, spends: [...new Set([...(existing.spends ?? []), ...spends()])] }); changed.add(envelope.eventId) }
           // Same event ID, different bytes: a replay or forgery attempt. Checkable copies were already verified above; one this
           // device cannot open yet is kept beside the stored copy, and whichever proves genuine wins once the key arrives.
-          else if (existing.origin === 'chain') await store.addAlternate(envelope.eventId, { envelope, txid: item.txid, height: item.height })
+          else if (existing.origin === 'chain') await store.addAlternate(envelope.eventId, { envelope, txid: item.txid, height: item.height, spends: spends() })
           continue
         }
-        const stored: StoredEnvelope = { eventId: envelope.eventId, envelope, origin: 'chain', status: 'CONFIRMED', txid: item.txid, height: item.height, addedAt: this.now() }
+        const stored: StoredEnvelope = { eventId: envelope.eventId, envelope, origin: 'chain', status: 'CONFIRMED', txid: item.txid, height: item.height, spends: spends(), addedAt: this.now() }
         if (await store.addEnvelope(stored)) discovered.push(stored)
       }
       await store.markSeen({ txid: item.txid, height: item.height, eventIds, scannedAt: this.now() })

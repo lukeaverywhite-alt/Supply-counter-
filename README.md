@@ -9,7 +9,7 @@ This repository currently contains the first functional front-end prototype. It 
 ## What it does now
 
 - **One shared, encrypted data pool on BSV testnet — no server, no database.** Every change is a signed event, encrypted with the unit key and written to BSV testnet; every device reads everyone's records back from the chain and computes identical state. See [the shared ledger design](docs/BSV_SHARED_LEDGER.md) and try it with [the two-phone demo](docs/demo-shared-count.md).
-- **Each person has their own key.** The first device creates the unit and becomes its Master; everyone else joins with a public join code and is admitted with a public admission code. No key is ever copied between people.
+- **Each person has their own key.** The first device creates the unit and becomes its Master; everyone else joins with a one-use ticket that a Master (or an Instructor, for cadet roles) makes for them, shown as a QR and a short code. No key is ever copied between people.
 - **Shared counting:** A counts 3 PT Shorts, B counts 3 PT Shorts → every device shows 6. An officer finalizes the count and on-hand becomes 6 everywhere.
 - **Zeroed catalog, real sizes:** a new unit starts with the 25 items from the master specification's bundles at zero on hand and no sizes; staff add sizes from Supply Manual presets (34R, 7 1/4, S–3XL…) or custom labels.
 - **Cadets by ID:** cadets are shown as short IDs (e.g. `C-4F7K`); names are optional, encrypted, and revealed only on tap.

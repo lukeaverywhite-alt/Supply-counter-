@@ -35,7 +35,7 @@ a push to `main` also **deploys GitHub Pages**. Before opening a PR, run the sam
 
 * `VITE_ARGUS_BLOCKCHAIN_MODE=mock-development`: single-device demo with a mock identity, no chain, data kept in the
   `argus-demo` IndexedDB. Fastest way to click around. Development only: it is refused in production builds.
-* `embedded-testnet` (default, see `.env.example`): the real app. Onboarding (create / join / restore a unit), per-device
+* `embedded-testnet` (default, see `.env.example`): the real app. Onboarding (create a unit / join with a ticket / restore a unit), per-device
   wallet, records published to BSV testnet via WhatsOnChain. Works offline and catches up later.
 * Mainnet does not exist in this build and must never be added without the §31 review (see spec).
 
@@ -66,10 +66,11 @@ a push to `main` also **deploys GitHub Pages**. Before opening a PR, run the sam
 | App-facing API + projection | `src/distributed/appIntegration.ts` (`DistributedAppController`, `ArgusAppProjection`) |
 | Per-record sync status | `src/distributed/delivery.ts` |
 | Roles / credentials / revocations | `src/auth/authorization.ts` (`ROLE_PERMISSIONS`) |
-| Device vault, join/admission codes, key rotation, recovery file | `src/unit/vault.ts` |
+| Device vault, ticket secrets, key rotation, recovery file | `src/unit/vault.ts` |
 | Device runtime (wires everything, key reconcile, admit/revoke/changeRole) | `src/unit/runtime.ts` |
 | Encrypted envelopes / local encrypted ledger / chain transport | `src/unit/envelope.ts`, `ledgerStore.ts`, `syncProvider.ts`, `transport.ts` |
-| Onboarding screens, Members & Wallet panels | `src/unit/screens/` |
+| Ticket issue and redeem | `src/unit/runtime.ts` (issue, cancel), `src/unit/ticketRedemption.ts` (redeem), `src/identity/ticketCode.ts` |
+| Onboarding screens, Tickets, Members & Wallet panels | `src/unit/screens/` |
 | BSV testnet client, wallet, in-memory test chain | `src/chain/` (`woc.ts`, `wallet.ts`, `fakeChain.ts`) |
 | Readiness, alerts, event/AMI/End-of-Year engines, inventory status | `src/stage3/` |
 | Catalog, bundles, sizes, cadet codes | `src/stage3/domain.ts`, `src/stage3/sizes.ts` |

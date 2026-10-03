@@ -2,8 +2,9 @@
  * LIVE BSV TESTNET proof of the owner's acceptance scenario, end to end, with no server:
  *
  *   1. A Master creates a unit (fresh unit ID ⇒ fresh anchor address) with a faucet-funded wallet.
- *   2. The Master admits Officer B and Assistant C by exchanging public codes and tops up
- *      their wallets from its own — each person has their own key; nothing secret is shared.
+ *   2. The Master makes a ticket for Officer B and for Assistant C, each funded with starter
+ *      satoshis from its own wallet; their devices redeem the tickets from the chain alone —
+ *      each person has their own key; nothing secret is shared.
  *   3. A adds sizes to PT Shorts and opens a shared count; everything is encrypted and written
  *      to testnet; B and C discover it by walking the anchor address history on WhatsOnChain.
  *   4. A counts 3 PT Shorts (M) and B counts 3 PT Shorts (M) → every device shows 6.
@@ -25,7 +26,8 @@ import { MemoryWalletStateStore } from '../src/chain/walletStore'
 import { GENESIS_CATALOG } from '../src/stage3/domain'
 import { MemoryLedgerStore } from '../src/unit/ledgerStore'
 import { UnitRuntime } from '../src/unit/runtime'
-import { acceptAdmission, createJoiningDevice, createMasterDevice, encodeJoinRequest } from '../src/unit/vault'
+import { TicketRefusal, redeemTicket } from '../src/unit/ticketRedemption'
+import { createJoiningDevice, createMasterDevice } from '../src/unit/vault'
 
 const KEY_FILE = process.env.ARGUS_TESTNET_KEYS ?? join(homedir(), '.config', 'argus', 'testnet-keys.json')
 const PT_SHORTS = GENESIS_CATALOG.find(item => item.name === 'PT Shorts')!.catalogId
@@ -65,12 +67,18 @@ describe.skipIf(!keys)('LIVE BSV TESTNET: shared count across three devices', ()
     log(`Unit ${masterDevice.record.unit!.unitId} · anchor ${a.transport.anchorAddress}`)
     const members: UnitRuntime[] = [], topUps: string[] = []
     for (const [name, role] of [['Officer B', 'SUPPLY_OFFICER'], ['Assistant C', 'SUPPLY_ASSISTANT']] as const) {
-      const pending = await createJoiningDevice({ passphrase: 'live testnet check 2', displayName: name }, storage())
-      const admitted = await a.admit(await encodeJoinRequest(pending), role, { topUpSatoshis: MEMBER_TOP_UP_SATOSHIS })
-      if (admitted.topUpError) throw new Error(admitted.topUpError)
-      log(`Admitted ${name}; top-up tx ${admitted.topUpTxid}`)
-      if (admitted.topUpTxid) topUps.push(admitted.topUpTxid)
-      members.push(await open(await acceptAdmission(pending, admitted.admissionCode, storage())))
+      const ticket = await a.issueTicket(name, role, { satoshis: MEMBER_TOP_UP_SATOSHIS })
+      await a.syncNow()
+      log(`Ticket for ${name}: funding tx ${ticket.funding.txid}`)
+      topUps.push(ticket.funding.txid)
+      const options = { api, ledger: new MemoryLedgerStore(), walletStore: new MemoryWalletStateStore(), storage: storage() }
+      const pending = await createJoiningDevice({ passphrase: 'live testnet check 2', displayName: name }, options.storage)
+      // The new device needs only the code; until the ticket is visible on the network it is told so.
+      const redeemed = await until(`${name} redeems the ticket from the chain`, async () => {
+        try { return await redeemTicket(pending, ticket.code, options) } catch (error) { if (error instanceof TicketRefusal && error.reason === 'NOT_ON_NETWORK') return undefined; throw error }
+      }, value => Boolean(value))
+      if (redeemed?.status !== 'ACTIVE') throw new Error(`${name}'s ticket was not accepted by the network.`)
+      members.push(await open(redeemed.device))
     }
     const [b, c] = members
 
@@ -102,7 +110,7 @@ describe.skipIf(!keys)('LIVE BSV TESTNET: shared count across three devices', ()
     const txids = [...new Set(perDevice.flat())].sort()
     for (const seen of perDevice) expect(seen).toEqual(txids)
     const link = (txid: string) => `https://test.whatsonchain.com/tx/${txid}`
-    const report = { at: new Date().toISOString(), unitId: masterDevice.record.unit!.unitId, anchor: a.transport.anchorAddress, anchorExplorer: `https://test.whatsonchain.com/address/${a.transport.anchorAddress}`, transactions: txids.map(link), memberTopUps: topUps.map(link), masterBalanceAfter: (await a.balance()).spendable }
+    const report = { at: new Date().toISOString(), unitId: masterDevice.record.unit!.unitId, anchor: a.transport.anchorAddress, anchorExplorer: `https://test.whatsonchain.com/address/${a.transport.anchorAddress}`, transactions: txids.map(link), memberTicketFundings: topUps.map(link), masterBalanceAfter: (await a.balance()).spendable }
     if (!DRY_RUN) writeFileSync(join(process.cwd(), 'testnet', 'last-run.json'), JSON.stringify(report, null, 2))
     log(`${DRY_RUN ? 'Dry-run report (not saved)' : 'Report written to testnet/last-run.json'}\n${JSON.stringify(report, null, 2)}`)
     expect(txids.length).toBeGreaterThan(0)

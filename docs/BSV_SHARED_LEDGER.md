@@ -81,11 +81,11 @@ conflict is deterministic (every device sees the same one) and is resolved with 
 | recovery key (ECDH P-256, original or recovered Master only) | opens every key generation on behalf of the recovery file |
 
 One PBKDF2-SHA-256 (600k) derivation unlocks them; each secret is separately AES-GCM sealed.
-Admission uses two **public** codes: the joiner’s `ARGUS-JOIN-1` (signing key, ECDH public key,
-wallet address, display name) and the Master’s `ARGUS-ADMIT-1` (Master-signed credential + the unit
-key wrapped with ECDH→HKDF→AES-GCM to the joiner). Neither code is useful to anyone else. The
-Master also publishes an `AUTHORITY_GRANTED` event so every device learns the member’s name, role
-and wallet, and can optionally send the new member testnet satoshis (default 2,000, editable).
+A person joins with a **ticket** (ADR 012, `docs/adr/012-admission-by-invitation-ticket.md`): a Master, or an Instructor
+for the cadet roles, names the person and a role, and the app makes a one-week, one-use ticket shown as a QR and a short code.
+The ticket is an encrypted record at an address only its code leads to; the new device reads it from the chain with no wallet
+of its own, takes the unit keys it carries, and redeems it by spending the ticket's funding output, which the network allows
+once. The issuer sees the tickets that are out, with days left, and can cancel one. Nothing in a ticket is useful without its code.
 
 Every envelope carries its author’s Master-signed credential inside the ciphertext, so any member
 can verify any other member’s role without a directory server. Revocation is an
@@ -109,9 +109,9 @@ member ECDH keys were recorded are reported as needing re-admission.
 ### Delegated Masters and role changes (spec §3)
 
 Master authority is delegated without copying any key: the unit authority signs a `MASTER`
-credential for a trusted member (at admission, or later via **Change role**). A delegated Master
-admits, re-roles and removes people with its **own** key; its authority-signed credential travels
-in the admission code so the new member can verify the chain offline. Only the unit authority
+credential for a trusted member (by a Master ticket, or later via **Change role**). A delegated Master
+makes tickets, re-roles and removes people with its **own** key; its authority-signed credential travels
+in the ticket so the new member can verify the chain offline. Only the unit authority
 (the original Master device, or one restored from a recovery file) can make or remove a Master.
 `ROLE_CHANGED` issues the new credential and revokes the old one in one signed event, so there is
 never a moment with two roles or none, and the person’s own device adopts its new role on the next
@@ -148,10 +148,9 @@ transaction). 1,000 satoshis covers a few hundred changes; 20,000 covers thousan
 1. **Master (first person):** open the app → *Create a new unit* → unit name, your name,
    passphrase. Fund the Master wallet: More → Wallet & sync → copy the address → send testnet
    coins from a BSV testnet faucet.
-2. **Everyone else:** open the app → *Join my unit* → your name, passphrase → send the join code to
-   the Master.
-3. **Master:** More → Members & access → paste the join code, choose the role, keep “Send them testnet satoshis” checked (default 2,000) → *Admit* → send back the admission code.
-4. **Joiner:** paste the admission code → *Join unit*.
+2. **Master or Instructor:** More → Tickets → type the person's name, choose the role → *Make ticket* → show them the QR or send the code (the Master's wallet pays the starter satoshis, default 2,000).
+3. **Everyone else:** open the app → *I have a ticket* → scan the QR picture or type the code → *Check ticket* → choose a passphrase → *Join unit*. The Master's phone can be off.
+4. A ticket works once and runs out after a week; More → Tickets lists the ones that are out and cancels one.
 5. Inventory → pick an item → *Add sizes* (presets or custom) → Count → start a shared count →
    everyone adds their tallies → an officer finalizes.
 

@@ -1,12 +1,12 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it } from 'vitest'
-import { AuthorizationService } from '../auth/authorization'
 import { DEFAULT_WALLET_DB_NAME, IndexedDbWalletStateStore } from '../chain/walletStore'
 import { IndexedDbLedgerStore } from './ledgerStore'
 import type { SignedArgusEvent } from '../distributed/types'
 import { canonicalize } from '../distributed/canonical'
-import { PUBLIC_ENVELOPE_FIELDS, deserializeEnvelope, openEnvelope, sealEnvelope, serializeEnvelope } from './envelope'
-import { DEVICE_VAULT_STORAGE_KEY, acceptAdmission, admitMember, createJoiningDevice, createMasterDevice, decodeJoinRequest, encodeJoinRequest, forgetDevice, loadDeviceVault, unlockDevice } from './vault'
+import { PUBLIC_ENVELOPE_FIELDS, openEnvelope, sealEnvelope, serializeEnvelope } from './envelope'
+import * as vault from './vault'
+import { DEVICE_VAULT_STORAGE_KEY, createMasterDevice, forgetDevice, loadDeviceVault, unlockDevice } from './vault'
 
 const memoryStorage = () => { const values = new Map<string, string>(); return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) }, removeItem: (key: string) => { values.delete(key) }, values } }
 const PASS = 'supply closet 42'
@@ -34,41 +34,8 @@ describe('device vault and admission', { timeout: 60_000 }, () => {
     expect(await again.identity.getPublicIdentity()).toBe(master.record.signingIdentity)
   })
 
-  it('admits a second person by exchanging public codes only, after which both devices can read each other’s encrypted events', async () => {
-    const masterStorage = memoryStorage(), joinerStorage = memoryStorage()
-    const master = await createMasterDevice({ passphrase: PASS, displayName: 'Luke', unitName: 'Bethel NJROTC' }, masterStorage)
-    const joiner = await createJoiningDevice({ passphrase: 'another pass 77', displayName: 'Jordan' }, joinerStorage)
-    expect(joiner.record.role).toBe('PENDING')
-    const joinCode = await encodeJoinRequest(joiner)
-    expect(await decodeJoinRequest(joinCode)).toMatchObject({ name: 'Jordan', wallet: joiner.record.walletAddress })
-    const { admissionCode, credential } = await admitMember(master, joinCode, 'SUPPLY_OFFICER', { storage: masterStorage })
-    expect(admissionCode).not.toContain(joiner.walletWif)
-    const admitted = await acceptAdmission(joiner, admissionCode, joinerStorage)
-    expect(admitted.record).toMatchObject({ role: 'SUPPLY_OFFICER', unit: { unitId: master.record.unit!.unitId, currentEpoch: 'e1' } })
-    // The admitted device's credential chains to the unit authority.
-    const authorization = new AuthorizationService(master.record.unit!.authorityIdentity, admitted.identity)
-    await authorization.acceptCredential(credential)
-    expect(() => authorization.require(admitted.record.signingIdentity, 'inventory.count')).not.toThrow()
-    // Survives a restart: unlock from storage and read the Master's encrypted event.
-    const reopened = await unlockDevice(loadDeviceVault(joinerStorage)!, 'another pass 77')
-    const event = await signedEvent(master, { fullName: 'Private Cadet Name', gender: 'Male', nsLevel: 'NS1', status: 'ACTIVE', sizes: {}, cadetCode: 'C-7K2Q' })
-    const envelope = await sealEnvelope({ unitId: master.record.unit!.unitId, epochId: 'e1', key: master.unitKeys.get('e1')!, plaintext: { event, credential: master.record.credential } })
-    const opened = await openEnvelope(deserializeEnvelope(serializeEnvelope(envelope)), async epoch => reopened.unitKeys.get(epoch))
-    expect(opened.event).toEqual(event)
-    expect(opened.credential).toEqual(master.record.credential)
-  })
-
-  it('refuses admission codes meant for another device or signed by a different unit', async () => {
-    const master = await createMasterDevice({ passphrase: PASS, displayName: 'Luke', unitName: 'Unit A' }, memoryStorage())
-    const other = await createMasterDevice({ passphrase: PASS, displayName: 'Mallory', unitName: 'Unit B' }, memoryStorage())
-    const alice = await createJoiningDevice({ passphrase: PASS, displayName: 'Alice' }, memoryStorage())
-    const bob = await createJoiningDevice({ passphrase: PASS, displayName: 'Bob' }, memoryStorage())
-    const forAlice = await admitMember(master, await encodeJoinRequest(alice), 'SUPPLY_ASSISTANT', { storage: memoryStorage() })
-    await expect(acceptAdmission(bob, forAlice.admissionCode, memoryStorage())).rejects.toThrow(/different device/)
-    const joined = await acceptAdmission(alice, forAlice.admissionCode, memoryStorage())
-    const fromOther = await admitMember(other, await encodeJoinRequest(alice), 'SUPPLY_ASSISTANT', { storage: memoryStorage() })
-    await expect(acceptAdmission(joined, fromOther.admissionCode, memoryStorage())).rejects.toThrow(/different unit/)
-    await expect(admitMember(joined, await encodeJoinRequest(bob), 'SUPPLY_ASSISTANT')).rejects.toThrow(/Only a unit Master/)
+  it('has no join code or admission code any more: a new person joins only by a ticket (D7)', () => {
+    for (const gone of ['acceptAdmission', 'admitMember', 'encodeJoinRequest', 'decodeJoinRequest']) expect(vault).not.toHaveProperty(gone)
   })
 })
 

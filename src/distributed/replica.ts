@@ -1,8 +1,8 @@
-import { ROLE_PERMISSIONS, type AuthorizationService } from '../auth/authorization'
+import { ROLE_PERMISSIONS, ticketRuleViolation, type AuthorizationService } from '../auth/authorization'
 import { canonicalize, sha256 } from './canonical'
 import { applyDelivery, isVerified, sameDelivery, type EventDelivery } from './delivery'
 import type { ArgusIdentityProvider } from '../identity/identity'
-import type { ArgusPermission, AuthorityCredential, AuthorityRevocation, CalendarEventProjection, CalendarFieldRevisions, CalendarScalarField, CalendarTaskProjection, CatalogItemProjection, NsLevel, SupplyEventKind, ConflictRecord, CountAssignment, CountObservation, CountSessionProjection, DistributedEventType, InventoryProjection, MissingIssueLine, SignedArgusEvent, SupplyTransactionLine, UnsignedArgusEvent, CountCorrection } from './types'
+import type { ArgusPermission, ArgusRole, AuthorityCredential, AuthorityRevocation, CalendarEventProjection, CalendarFieldRevisions, CalendarScalarField, CalendarTaskProjection, CatalogItemProjection, NsLevel, SupplyEventKind, ConflictRecord, CountAssignment, CountObservation, CountSessionProjection, DistributedEventType, InventoryProjection, MissingIssueLine, SignedArgusEvent, SupplyTransactionLine, UnsignedArgusEvent, CountCorrection } from './types'
 import type { ArgusRepository, RepositoryState } from '../storage/repository'
 import type { EventSyncProvider } from '../sync/mock'
 import type { BundleVersionProjection, CadetProjection, ConflictOutcome, ConflictShortfall, CurrentPropertyLine, RecordCorrectionKind, ReturnCondition, StillNeededProjection } from './types'
@@ -10,8 +10,8 @@ import { FACTORY_BUNDLES, GENESIS_CATALOG, GENESIS_INVENTORY, ONE_SIZE_LABEL, RE
 import { normalizeSizeLabel } from '../stage3/sizes'
 import { SUPPLY_EVENT_KINDS, templateFor } from '../stage3/calendar'
 import { stockMovedSince } from '../stage3/inventoryStatus'
-import { parseKeyGrantRecord } from '../private-sync/schema'
-import type { KeyGrantRecord } from '../private-sync/types'
+import { TICKET_LIFETIME_MS, parseKeyGrantRecord, parseTicketCancelledFact, parseTicketIssuedFact, parseTicketRedeemedFact } from '../private-sync/schema'
+import type { KeyGrantRecord, TicketCancelledFact, TicketIssuedFact, TicketRedeemedFact } from '../private-sync/types'
 
 const PERMISSION_FOR: Partial<Record<DistributedEventType, ArgusPermission>> = {
   INVENTORY_ITEM_CREATED: 'inventory.create', INVENTORY_ITEM_UPDATED: 'inventory.adjust', INVENTORY_RECEIVED: 'inventory.adjust',
@@ -558,6 +558,35 @@ export class ArgusReplica {
     return this.commit({ eventType: 'RECOVERY_KEY_REGISTERED', entityId: `recovery:${input.fingerprint}`, payload: { publicKey: input.publicKey, fingerprint: input.fingerprint }, ...options })
   }
 
+  // ---------- admission tickets (docs/adr/012-admission-by-invitation-ticket.md) ----------
+  /** Written by the issuer once the ticket is funded and its record is queued for the chain. The fold applies the role rule (D4) again on every device. */
+  async recordTicketIssued(fact: TicketIssuedFact, options: CommandOptions = {}) {
+    const checked = parseTicketIssuedFact(fact)
+    return this.commit({ eventType: 'TICKET_ISSUED', entityId: checked.ticketId, payload: { ...checked }, ...options })
+  }
+  /** Written by the issuer after the cancelling (or sweeping) transaction was accepted by the network. */
+  async recordTicketCancelled(fact: TicketCancelledFact, options: CommandOptions = {}) {
+    const checked = parseTicketCancelledFact(fact)
+    return this.commit({ eventType: 'TICKET_CANCELLED', entityId: checked.ticketId, payload: { ...checked }, ...options })
+  }
+  /** Written by the new member's own device in the transaction that redeems the ticket. */
+  async recordTicketRedeemed(fact: TicketRedeemedFact, options: CommandOptions = {}) {
+    const checked = parseTicketRedeemedFact(fact)
+    return this.commit({ eventType: 'TICKET_REDEEMED', entityId: checked.ticketId, payload: { ...checked }, ...options })
+  }
+  /**
+   * The role of whoever wrote a ticket event, judged like any other record: an active credential at the event's time, and held to
+   * a later removal or role change by position in the unit's history. Tickets need no permission of their own (a new one would change
+   * existing credentials); the rule is ticketRuleViolation.
+   */
+  private ticketAuthorRole(state: RepositoryState, event: SignedArgusEvent): ArgusRole {
+    const credential = this.authorization.credentialFor(event.actorPublicIdentity, event.timestamp)
+    if (!credential) throw new Error('Unauthorized: only a Master or an Instructor can make tickets.')
+    const member = state.members.find(candidate => candidate.publicIdentity === event.actorPublicIdentity)
+    if (member?.status === 'REVOKED') throw new Error('Recorded after the author’s access was removed.')
+    return member?.roleChangedAt ? member.role : credential.role
+  }
+
   // ---------- canonical fold ----------
   private applyEvent(state: RepositoryState, event: SignedArgusEvent) {
     const permission = PERMISSION_FOR[event.eventType]; if (permission) this.authorization.require(event.actorPublicIdentity, permission, event.timestamp)
@@ -718,6 +747,41 @@ export class ArgusReplica {
         if (grants.some(grant => grant.epochId !== value.epochId || grant.organizationId !== this.organizationId || grant.grantorPublicIdentity !== event.actorPublicIdentity)) throw new Error('Key rotation contains a foreign key grant.')
         state.keyEpochs.push({ epochId: value.epochId, previousEpoch: value.previousEpoch, reason: value.reason, rotatedBy: event.actorPublicIdentity, rotatedAt: event.timestamp, eventId: event.eventId, recipients: [...new Set(grants.map(grant => grant.granteePublicIdentity))].sort() })
         return
+      }
+      case 'TICKET_ISSUED': {
+        const fact = parseTicketIssuedFact(event.payload)
+        if (fact.ticketId !== event.entityId) throw new Error('Corrupted ticket event.')
+        const lifetime = Date.parse(fact.expiresAt) - Date.parse(fact.issuedAt)
+        if (lifetime <= 0 || lifetime > TICKET_LIFETIME_MS) throw new Error('A ticket must expire within a week of being issued.')
+        const violation = ticketRuleViolation(this.ticketAuthorRole(state, event), fact.role); if (violation) throw new Error(violation)
+        if (state.tickets.some(ticket => ticket.ticketId === fact.ticketId)) throw new Error('Ticket ID already exists.')
+        state.tickets.push({ ...fact, issuedBy: event.actorPublicIdentity, issuedEventId: event.eventId, status: 'OPEN' }); return
+      }
+      case 'TICKET_CANCELLED': {
+        const fact = parseTicketCancelledFact(event.payload)
+        if (fact.ticketId !== event.entityId) throw new Error('Corrupted ticket event.')
+        const ticket = state.tickets.find(candidate => candidate.ticketId === fact.ticketId); if (!ticket) throw new Error('Ticket projection is missing.')
+        if (ticket.issuedBy !== event.actorPublicIdentity) throw new Error('Only the person who made a ticket can cancel it.')
+        const violation = ticketRuleViolation(this.ticketAuthorRole(state, event), ticket.role); if (violation) throw new Error(violation)
+        if (ticket.status !== 'OPEN') throw new Error('This ticket is already closed.')
+        Object.assign(ticket, { status: 'CANCELLED' as const, cancelReason: fact.reason, cancelledAt: fact.cancelledAt, spendTxid: fact.spendTxid }); return
+      }
+      case 'TICKET_REDEEMED': {
+        // ADR 012, "How a verifier accepts the authority -> ticket -> device chain". The signatures (link 1, link 2) were checked before
+        // the fold, which only holds the ticket credential if the record came in the spend of the ticket's funding; here, deterministically:
+        const fact = parseTicketRedeemedFact(event.payload), { invitation, redemption } = fact
+        if (fact.ticketId !== event.entityId || invitation.unitId !== this.organizationId) throw new Error('Corrupted ticket event.')
+        if (redemption.subjectPublicIdentity !== event.actorPublicIdentity) throw new Error('A ticket is redeemed by the new member’s own device.')
+        const ticket = state.tickets.find(candidate => candidate.ticketId === fact.ticketId); if (!ticket) throw new Error('Ticket projection is missing.')
+        if (invitation.role !== ticket.role || invitation.displayName !== ticket.displayName || invitation.issuedAt !== ticket.issuedAt || invitation.expiresAt !== ticket.expiresAt || canonicalize(invitation.funding) !== canonicalize(ticket.funding)) throw new Error('This redemption does not match the ticket that was issued.')
+        // Once: the first of a redemption and a cancellation in the unit's order closes the ticket.
+        if (ticket.status !== 'OPEN') throw new Error('This ticket is already closed.')
+        if (Date.parse(redemption.redeemedAt) < Date.parse(invitation.issuedAt) || Date.parse(redemption.redeemedAt) >= Date.parse(invitation.expiresAt)) throw new Error('This ticket was redeemed outside its week.')
+        if (!this.authorization.verifiedTicketCredential(fact.ticketId, redemption.subjectPublicIdentity)) throw new Error('This ticket’s signatures have not been verified.')
+        Object.assign(ticket, { status: 'REDEEMED' as const, redeemedAt: redemption.redeemedAt, redeemedBy: event.actorPublicIdentity })
+        // One fact does what AUTHORITY_GRANTED and ADMISSION_CONFIRMED do for a direct admission: the device is ACTIVE at once.
+        const member = { publicIdentity: redemption.subjectPublicIdentity, displayName: invitation.displayName, role: invitation.role, credentialId: fact.ticketId, credentialEventId: event.eventId, issuedAt: redemption.redeemedAt, walletAddress: redemption.walletAddress, ecdhPublicKey: redemption.ecdhPublicKey, admittedBy: ticket.issuedBy, admittedEventId: event.eventId, status: 'ACTIVE' as const, activatedAt: redemption.redeemedAt, activationEventId: event.eventId }
+        state.members = [...state.members.filter(existing => existing.publicIdentity !== member.publicIdentity), member]; return
       }
       case 'RECOVERY_KEY_REGISTERED': {
         const { publicKey, fingerprint } = event.payload as { publicKey?: unknown; fingerprint?: unknown }
@@ -1111,7 +1175,7 @@ export class ArgusReplica {
     const genesis = state.genesis ?? { inventory: [], catalog: [] }
     state.clock = 0
     state.inventory = structuredClone(genesis.inventory); state.catalog = structuredClone(genesis.catalog)
-    state.countSessions = []; state.cadets = []; state.stillNeeded = []; state.transactions = []; state.conflicts = []; state.members = []; state.admissionConfirmations = []; state.rejected = []; state.calendar = []; state.corrections = []; state.rollovers = []; state.keyEpochs = []; delete state.recoveryKey
+    state.countSessions = []; state.cadets = []; state.stillNeeded = []; state.transactions = []; state.conflicts = []; state.members = []; state.admissionConfirmations = []; state.rejected = []; state.calendar = []; state.corrections = []; state.rollovers = []; state.keyEpochs = []; state.tickets = []; delete state.recoveryKey
     state.bundles = FACTORY_BUNDLES.map(source => factoryBundle(source, state.inventory))
     const ordered = [...state.events].sort((a, b) => eventSortKey(a.event) < eventSortKey(b.event) ? -1 : 1)
     for (const record of ordered) this.tryApply(state, record.event)

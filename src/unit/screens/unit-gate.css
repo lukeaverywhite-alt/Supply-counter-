@@ -11,4 +11,7 @@
 .unit-gate-reset summary { cursor: pointer; opacity: 0.8; }
 .unit-gate { gap: 16px; padding: 16px 0; }
 .unit-gate-banner { width: min(560px, calc(100vw - 32px)); border: 1px solid var(--color-warning); border-radius: 10px; padding: 8px 12px; font-size: 0.75rem; justify-self: center; }
-.admission-qr { display: block; width: min(100%, 360px); height: auto; margin: 12px auto; border: 8px solid white; border-radius: 8px; }
+.ticket-qr { display: block; width: min(100%, 360px); height: auto; margin: 12px auto; border: 8px solid white; border-radius: 8px; }
+.ticket-result { display: grid; gap: 10px; }
+.ticket-result p { margin: 0; }
+.ticket-code { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.1rem; font-weight: 700; letter-spacing: 0.05em; text-align: center; word-break: normal; overflow-wrap: anywhere; user-select: all; }

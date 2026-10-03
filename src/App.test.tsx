@@ -8,7 +8,7 @@ import { DistributedAppController } from './distributed/appIntegration'
 import { MemoryRepository } from './storage/repository'
 import { DEFAULT_SETTINGS, LocalSettingsStorage, SETTINGS_KEY } from './settings'
 import { MemoryLedgerStore } from './unit/ledgerStore'
-import { createJoiningDevice, encodeJoinRequest, loadDeviceVault } from './unit/vault'
+import { loadDeviceVault } from './unit/vault'
 
 const memoryStorage = () => { const values = new Map<string, string>(); return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => void values.set(key, value), removeItem: (key: string) => void values.delete(key), values } }
 const PASS = 'supply closet 42'
@@ -123,38 +123,36 @@ describe('unit onboarding over a (fake) BSV testnet chain', { timeout: 120_000 }
     expect(loadDeviceVault(storage)?.unit?.unitName).toBe('Bethel NJROTC')
   })
 
-  it('the Master admits a person from their join code; the joiner enters the admission code and is in the same unit', async () => {
+  it('the Master makes a ticket in Tickets; the new person types it at the gate and is in the same unit with the ticket’s role', async () => {
     const chain = new FakeChain()
     const masterStorage = await createUnitThroughUi(chain)
     chain.fund(loadDeviceVault(masterStorage)!.walletAddress, 100_000, { confirmed: true })
-    // The joiner's device (created with the same code the UI's Join flow uses).
-    const joinerStorage = memoryStorage()
-    const joiner = await createJoiningDevice({ passphrase: 'another pass 77', displayName: 'Jordan' }, joinerStorage)
     await goTo('More')
-    fireEvent.click(await screen.findByRole('button', { name: /Members & access/ }))
-    fireEvent.change(screen.getByLabelText('Join code'), { target: { value: await encodeJoinRequest(joiner) } })
+    fireEvent.click(await screen.findByRole('button', { name: /Tickets/ }))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Jordan' } })
     fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'SUPPLY_OFFICER' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Admit' }))
-    const code = (await screen.findByLabelText('Admission code', {}, { timeout: 20_000 }) as HTMLTextAreaElement).value
-    expect(code).toMatch(/^ARGUS-ADMIT-1:/)
-    expect(await screen.findByRole('img', { name: /One-time admission QR code for Jordan/ }, { timeout: 20_000 })).toHaveAttribute('src', expect.stringMatching(/^data:image\/png;base64,/))
-    expect(screen.getByRole('button', { name: 'Share QR image' })).toBeInTheDocument()
-    expect(await screen.findByText('view transaction', {}, { timeout: 20_000 })).toBeInTheDocument()
-    // The member list refreshes after the admission code appears, so wait for it rather than reading it synchronously.
-    const people = screen.getByRole('list', { name: 'People in this unit' })
-    expect(await within(people).findByText(/Jordan/, {}, { timeout: 20_000 })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Make ticket' }))
+    expect(await screen.findByRole('img', { name: 'Ticket QR code for Jordan' }, { timeout: 20_000 })).toHaveAttribute('src', expect.stringMatching(/^data:image\/png;base64,/))
+    const code = screen.getByLabelText('Ticket code').textContent!
+    expect(within(screen.getByRole('list', { name: 'Tickets out' })).getByText('Jordan').closest('li')).toHaveTextContent('7 days left')
+    // The Members panel no longer has a join-code form.
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Members & access/ }))
+    expect(screen.queryByLabelText('Join code')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Admit' })).toBeNull()
 
-    // On the joiner's device: unlock, see the waiting screen with a join code, paste the admission code.
+    // A fresh device: types the code (lower case, spaces) at the gate. The Master's app keeps publishing in the background.
+    const joinerStorage = memoryStorage()
     document.body.innerHTML = ''
     render(<App runtimeOptions={runtimeOptions(chain)} storage={joinerStorage} settingsStorage={new LocalSettingsStorage(memoryStorage())} />)
-    fireEvent.change(await screen.findByLabelText('Passphrase'), { target: { value: 'another pass 77' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }))
-    // The code is derived asynchronously after the screen appears; wait for it rather than reading the empty box.
-    const joinCodeBox = await screen.findByLabelText('Your join code', {}, { timeout: 20_000 }) as HTMLTextAreaElement
-    await waitFor(() => expect(joinCodeBox.value).toMatch(/^ARGUS-JOIN-1:/), { timeout: 20_000 })
-    fireEvent.change(screen.getByLabelText('Admission code'), { target: { value: code } })
+    fireEvent.click(await screen.findByRole('button', { name: /I have a ticket/ }))
+    fireEvent.change(screen.getByLabelText('Ticket code'), { target: { value: code.toLowerCase().replaceAll('-', ' ') } })
+    // Until the Master's phone has published the ticket the gate says so; asking again after a moment works.
+    await waitFor(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check ticket' })); expect(await screen.findByText('Ticket for Jordan', {}, { timeout: 5_000 })).toBeInTheDocument() }, { timeout: 60_000, interval: 500 })
+    fireEvent.change(screen.getByLabelText('Passphrase'), { target: { value: 'another pass 77' } })
+    fireEvent.change(screen.getByLabelText('Confirm passphrase'), { target: { value: 'another pass 77' } })
     fireEvent.click(screen.getByRole('button', { name: 'Join unit' }))
-    expect(await screen.findByRole('button', { name: /Signed in as/ }, { timeout: 20_000 })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Signed in as/ }, { timeout: 60_000 })).toBeInTheDocument()
     expect(screen.getAllByText('Supply Officer').length).toBeGreaterThan(0)
     expect(loadDeviceVault(joinerStorage)?.unit?.unitId).toBe(loadDeviceVault(masterStorage)?.unit?.unitId)
   })

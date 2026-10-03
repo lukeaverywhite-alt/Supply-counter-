@@ -17,6 +17,7 @@ import {
   Shirt,
   UserPlus,
   Users,
+  Ticket,
   Wallet,
   Wifi,
 } from "lucide-react";
@@ -49,10 +50,15 @@ import { StandardIssueGaps } from "./features/readiness/StandardIssueGaps";
 import type { SyncSnapshot } from "./stage3/readinessTypes";
 import { CalendarView } from "./features/calendar";
 import { BundleEditorPanel } from "./features/bundles";
-import { ExportPanel, RolloverPanel, RosterImportPanel } from "./features/admin";
+import {
+  ExportPanel,
+  RolloverPanel,
+  RosterImportPanel,
+} from "./features/admin";
 import { ActivityView } from "./features/activity";
 import { cadetLabel } from "./stage3/domain";
 import { UnitGate } from "./unit/screens/UnitGate";
+import { TicketsPanel } from "./unit/screens/TicketsPanel";
 import { MembersPanel, WalletPanel } from "./unit/screens/UnitPanels";
 import { roleLabel, syncLabel, syncOutcome } from "./unit/screens/labels";
 import {
@@ -66,19 +72,14 @@ import type {
 } from "./unit/runtime";
 
 export type Tab =
-  | "home"
-  | "count"
-  | "inventory"
-  | "cadets"
-  | "calendar"
-  | "activity"
-  | "more";
+  "home" | "count" | "inventory" | "cadets" | "calendar" | "activity" | "more";
 type Panel =
   | "cadet-issue"
   | "cadet-return"
   | "bundles"
   | "needed"
   | "members"
+  | "tickets"
   | "wallet"
   | "conflicts"
   | "diagnostics"
@@ -136,10 +137,7 @@ export default function App({
   )
     return <DemoApp {...rest} />;
   return (
-    <UnitGate
-      runtimeOptions={runtimeOptions}
-      {...(storage ? { storage } : {})}
-    >
+    <UnitGate runtimeOptions={runtimeOptions} {...(storage ? { storage } : {})}>
       {(runtime, lock) => (
         <AuthenticatedApp
           controller={runtime.controller}
@@ -351,7 +349,10 @@ function AuthenticatedApp({
     setTab(target.tab);
     setPanel(target.panel ?? null);
     const exact = Boolean(
-      target.calendarEventId || target.cadetId || target.itemId || target.filter,
+      target.calendarEventId ||
+      target.cadetId ||
+      target.itemId ||
+      target.filter,
     );
     setFocus((previous) =>
       exact ? { target, nonce: (previous?.nonce ?? 0) + 1 } : undefined,
@@ -414,15 +415,16 @@ function AuthenticatedApp({
       )}
       <main className="main-stage">
         <div className={`environment-banner ${mode}`} role="note">
-          <strong>{mode === "testnet" ? "BSV TESTNET" : "MOCK BLOCKCHAIN"}</strong>
+          <strong>
+            {mode === "testnet" ? "BSV TESTNET" : "MOCK BLOCKCHAIN"}
+          </strong>
           <span>Development Environment · No Production Transactions</span>
         </div>
         {revoked && (
           <div className="workflow-error" role="alert">
             A Master removed your access to {status?.unitName}. This device
-            still shows what it already had, but nothing new you record will
-            be accepted, and it cannot read anything written after your
-            removal.
+            still shows what it already had, but nothing new you record will be
+            accepted, and it cannot read anything written after your removal.
           </div>
         )}
         <header className="topbar">
@@ -568,6 +570,11 @@ function AuthenticatedApp({
           <CommandCenter
             projection={projection}
             hasRuntime={Boolean(runtime)}
+            canMakeTickets={Boolean(
+              runtime &&
+              !revoked &&
+              (role === "MASTER" || role === "INSTRUCTOR"),
+            )}
             can={can}
             open={setPanel}
             settings={() => setSettingsOpen(true)}
@@ -637,7 +644,11 @@ function AuthenticatedApp({
         />
       )}
       {panel === "export" && (
-        <ExportPanel projection={projection} notify={notify} close={() => setPanel(null)} />
+        <ExportPanel
+          projection={projection}
+          notify={notify}
+          close={() => setPanel(null)}
+        />
       )}
       {panel === "needed" && (
         <NeededPanel
@@ -667,6 +678,14 @@ function AuthenticatedApp({
           projection={projection}
           close={() => setPanel(null)}
           onProjection={setProjection}
+          notify={notify}
+        />
+      )}
+      {panel === "tickets" && runtime && (
+        <TicketsPanel
+          runtime={runtime}
+          projection={projection}
+          close={() => setPanel(null)}
           notify={notify}
         />
       )}
@@ -712,6 +731,7 @@ type CommandAction = [Exclude<Panel, null>, string, string, typeof Activity];
 function CommandCenter({
   projection,
   hasRuntime,
+  canMakeTickets,
   can,
   open,
   settings,
@@ -719,6 +739,7 @@ function CommandCenter({
 }: {
   projection: ArgusAppProjection;
   hasRuntime: boolean;
+  canMakeTickets: boolean;
   can: (permission: ArgusPermission) => boolean;
   open: (p: Panel) => void;
   settings: () => void;
@@ -729,9 +750,19 @@ function CommandCenter({
         [
           "members",
           "Members & access",
-          "Admit people with a join code, see who is in the unit",
+          "See who is in the unit, change roles, remove people",
           KeyRound,
         ],
+        ...(canMakeTickets
+          ? ([
+              [
+                "tickets",
+                "Tickets",
+                "Make a ticket for a new person, see tickets out, cancel one",
+                Ticket,
+              ],
+            ] as CommandAction[])
+          : []),
         [
           "wallet",
           "Wallet & sync",
@@ -891,9 +922,16 @@ function NeededPanel({
         {requirements.length ? (
           requirements.map((n) => {
             const count = Math.max(0, n.quantityNeeded - n.quantityFulfilled);
-            const catalogId = n.catalogId ?? projection.inventory.find(item => item.entityId === n.itemId)?.catalogId ?? projection.catalog.find(item => item.name === n.displayLabel)?.catalogId;
+            const catalogId =
+              n.catalogId ??
+              projection.inventory.find((item) => item.entityId === n.itemId)
+                ?.catalogId ??
+              projection.catalog.find((item) => item.name === n.displayLabel)
+                ?.catalogId;
             const availableSizes = catalogId
-              ? projection.inventory.filter(item => item.catalogId === catalogId && item.active).map(item => item.variant)
+              ? projection.inventory
+                  .filter((item) => item.catalogId === catalogId && item.active)
+                  .map((item) => item.variant)
               : [];
             const cadet = projection.cadets.find(
               (c) => c.cadetId === n.cadetId,

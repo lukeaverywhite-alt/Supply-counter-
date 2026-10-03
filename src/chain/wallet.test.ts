@@ -411,3 +411,75 @@ describe('coins behind a broadcast the network accepted but never kept', () => {
     expect((await wallet.balance()).spendable).toBeLessThan(10_000)
   })
 })
+
+describe('spending an admission ticket’s funding output (ADR 012)', () => {
+  const ticketKey = () => PrivateKey.fromRandom()
+  async function fundedTicket(satoshis = 2_000) {
+    const { chain, wallet, ...rest } = setup(), key = ticketKey(), ticketAddress = key.toAddress('testnet')
+    chain.fund(wallet.address, 50_000, { confirmed: true })
+    const funding = await wallet.prepareTransfer(ticketAddress, satoshis)
+    return { chain, wallet, key, ticketAddress, funding, ...rest }
+  }
+
+  it('signs with the ticket key, carries a T record and a 1-sat marker at the ticket address, and returns the rest to the wallet', async () => {
+    const { chain, wallet, key, ticketAddress, funding } = await fundedTicket()
+    await wallet.flush()
+    const before = (await wallet.balance()).spendable
+    const spend = await wallet.prepareSpendOfOutpoint({ key, outpoint: { txid: funding.txid, vout: 0 }, records: [{ kind: 'T', payload: Uint8Array.of(1, 2, 3) }], markerAddress: ticketAddress, correlationIds: ['cancel:t-x'] })
+    expect(inputsOf(spend.hex)).toEqual([`${funding.txid}:0`])
+    const flushed = await wallet.flush()
+    expect(flushed.broadcast).toEqual([spend.txid]); expect(flushed.rolledBack).toEqual([])
+    expect(chain.spenderOf(funding.txid, 0)).toBe(spend.txid)
+    expect(decodeArgusRecords(spend.hex)).toMatchObject([{ kind: 'T', vout: 0 }])
+    const tx = Transaction.fromHex(spend.hex)
+    expect(tx.outputs[1].satoshis).toBe(1)
+    // the ticket address shows the spend in its history (the marker), and the leftover came back to the wallet
+    expect(chain.balanceOf(ticketAddress)).toBe(1)
+    expect((await wallet.balance()).spendable).toBeGreaterThan(before + 1_900)
+    expect(feeOf(chain, spend.hex)).toBeLessThanOrEqual(5)
+  })
+
+  it('marks every address it is asked to: a redemption shows at the ticket address and on the unit’s anchor', async () => {
+    const { chain, wallet, key, ticketAddress, funding } = await fundedTicket()
+    const anchor = fakeAddress()
+    const spend = await wallet.prepareSpendOfOutpoint({ key, outpoint: { txid: funding.txid, vout: 0 }, records: [{ kind: 'T', payload: Uint8Array.of(1) }, { kind: 'E', payload: Uint8Array.of(2) }], markerAddress: ticketAddress, alsoMarkAddresses: [anchor], correlationIds: ['redeem:t-x'] })
+    expect((await wallet.flush()).broadcast).toEqual([funding.txid, spend.txid])
+    expect(decodeArgusRecords(spend.hex).map(record => record.kind)).toEqual(['T', 'E'])
+    expect([chain.balanceOf(ticketAddress), chain.balanceOf(anchor)]).toEqual([1, 1])
+    expect(await chain.unconfirmedHistory(anchor)).toEqual([spend.txid])
+    await expect(wallet.prepareSpendOfOutpoint({ key, outpoint: { txid: funding.txid, vout: 0 }, records: [{ kind: 'T', payload: Uint8Array.of(1) }], markerAddress: ticketAddress, alsoMarkAddresses: ['1BoatSLRHtKNngkdXEeobR76b53LETtpyT'], correlationIds: [] })).rejects.toThrow(/Marker address/)
+  })
+
+  it('queues the spend durably, in order behind its funding transaction, and survives a restart', async () => {
+    const { wallet, key, ticketAddress, funding, store, wif, chain } = await fundedTicket()
+    const spend = await wallet.prepareSpendOfOutpoint({ key, outpoint: { txid: funding.txid, vout: 0 }, records: [{ kind: 'T', payload: Uint8Array.of(9) }], markerAddress: ticketAddress, correlationIds: ['cancel:t-x'] })
+    const again = DeviceWallet.fromWif(wif, chain, store)
+    expect((await again.pending()).map(tx => tx.txid)).toEqual([funding.txid, spend.txid])
+    expect((await again.pending())[1].correlationIds).toEqual(['cancel:t-x'])
+    const flushed = await again.flush()
+    expect(flushed.broadcast).toEqual([funding.txid, spend.txid])
+  })
+
+  it('refuses a key that does not own the output, and an output that is not there', async () => {
+    const { wallet, ticketAddress, funding } = await fundedTicket()
+    await expect(wallet.prepareSpendOfOutpoint({ key: ticketKey(), outpoint: { txid: funding.txid, vout: 0 }, records: [{ kind: 'T', payload: Uint8Array.of(1) }], markerAddress: ticketAddress, correlationIds: [] })).rejects.toThrow(/does not belong to this ticket key/)
+    await expect(wallet.prepareSpendOfOutpoint({ key: ticketKey(), outpoint: { txid: funding.txid, vout: 9 }, records: [{ kind: 'T', payload: Uint8Array.of(1) }], markerAddress: ticketAddress, correlationIds: [] })).rejects.toThrow(/does not belong/)
+    await expect(wallet.prepareSpendOfOutpoint({ key: ticketKey(), outpoint: { txid: funding.txid, vout: 0 }, records: [], markerAddress: ticketAddress, correlationIds: [] })).rejects.toThrow(/At least one/)
+  })
+
+  it('lets the network decide: a second spend of the same output is rolled back as a conflict', async () => {
+    const { wallet, chain, key, ticketAddress, funding } = await fundedTicket()
+    await wallet.flush()
+    const first = await wallet.prepareSpendOfOutpoint({ key, outpoint: { txid: funding.txid, vout: 0 }, records: [{ kind: 'T', payload: Uint8Array.of(1) }], markerAddress: ticketAddress, correlationIds: ['a'] })
+    await wallet.flush()
+    const second = await wallet.prepareSpendOfOutpoint({ key, outpoint: { txid: funding.txid, vout: 0 }, records: [{ kind: 'T', payload: Uint8Array.of(2) }], markerAddress: ticketAddress, correlationIds: ['b'] })
+    const flushed = await wallet.flush()
+    expect(flushed.rolledBack.map(entry => ({ txid: entry.txid, status: entry.status, ids: entry.correlationIds }))).toEqual([{ txid: second.txid, status: 'conflict', ids: ['b'] }])
+    expect(chain.spenderOf(funding.txid, 0)).toBe(first.txid)
+  })
+
+  it('says so when the funding is too small to pay the fee', async () => {
+    const { wallet, key, ticketAddress, funding } = await fundedTicket(1)
+    await expect(wallet.prepareSpendOfOutpoint({ key, outpoint: { txid: funding.txid, vout: 0 }, records: [{ kind: 'T', payload: new Uint8Array(40_000) }], markerAddress: ticketAddress, correlationIds: [] })).rejects.toThrow(/too small/)
+  })
+})
