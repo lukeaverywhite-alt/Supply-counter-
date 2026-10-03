@@ -1,3 +1,4 @@
+import { isReissuedCredential } from '../../auth/authorization'
 import type { ArgusAppProjection } from '../../distributed/appIntegration'
 import { canonicalize, sha256 } from '../../distributed/canonical'
 import { isVerified } from '../../distributed/delivery'
@@ -119,7 +120,9 @@ export function describeActivity(projection: Projection, record: StoredEvent, me
     case 'AUTHORITY_REVOKED':
       return { title: `Removed access for ${person(event.entityId)}`, record: { kind: 'Member', label: person(event.entityId) } }
     case 'ROLE_CHANGED': {
-      const role = (payload.credential as { role?: string } | undefined)?.role
+      const { role, credentialId } = (payload.credential ?? {}) as { role?: string; credentialId?: unknown }
+      // A credential re-issued with its role's current permissions (mw-kmgi38.11) is not a new role.
+      if (role && typeof credentialId === 'string' && isReissuedCredential({ credentialId })) return { title: `${person(event.entityId)} has the current ${roleLabel(role)} permissions`, record: { kind: 'Member', label: person(event.entityId) } }
       return { title: `${person(event.entityId)} is now ${role ? roleLabel(role) : 'in a new role'}`, record: { kind: 'Member', label: person(event.entityId) } }
     }
     case 'CONFLICT_DETECTED':
@@ -150,6 +153,18 @@ export function describeActivity(projection: Projection, record: StoredEvent, me
       return { title: `Added cadet ${cadet(event.entityId)}`, record: { kind: 'Cadet', label: cadet(event.entityId) } }
     case 'CADET_UPDATED':
       return { title: `Updated ${fields(payload) || 'profile'} of cadet ${cadet(event.entityId)}`, record: { kind: 'Cadet', label: cadet(event.entityId) } }
+    case 'CADET_CHANNEL_CREATED':
+      return { title: `Opened a private record for cadet ${cadet(event.entityId)}`, record: { kind: 'Cadet', label: cadet(event.entityId) } }
+    case 'CADET_CHANNEL_ROTATED':
+      return { title: `Replaced the private record key for cadet ${cadet(event.entityId)}${typeof payload.reason === 'string' && payload.reason.trim() ? ` (${payload.reason.trim()})` : ''}`, record: { kind: 'Cadet', label: cadet(event.entityId) } }
+    case 'CADET_NOTICES_KEY_CREATED':
+      return { title: 'Set up notices to cadets', record: { kind: 'Unit key', label: 'Cadet notices' } }
+    case 'NOTICE_SENT': {
+      const to = payload.audience === 'all' ? 'all cadets' : `cadet ${cadet((payload.audience as { cadetId?: unknown } | undefined)?.cadetId)}`
+      return { title: `Sent a notice to ${to}`, record: { kind: 'Notice', label: to } }
+    }
+    case 'CADET_TICKET_ISSUED':
+      return { title: `Made a phone ticket for cadet ${cadet(payload.cadetId)}`, record: { kind: 'Ticket', label: cadet(payload.cadetId) } }
     case 'CADETS_IMPORTED': {
       const rows = Array.isArray(payload.cadets) ? payload.cadets as Array<{ cadetId?: unknown }> : []
       const codes = rows.map(row => cadet(row.cadetId))

@@ -1,4 +1,4 @@
-import type { EncryptedArgusEnvelope, KeyGrantRecord, TicketCancellation, TicketCancelledFact, TicketChainRecord, TicketFundingOutpoint, TicketInvitation, TicketIssuedFact, TicketPackage, TicketRedeemedFact, TicketRedemption } from './types'
+import type { CadetJoinedRecord, CadetTicketIssuedFact, CadetTicketPackage, EncryptedArgusEnvelope, KeyGrantRecord, TicketCancellation, TicketCancelledFact, TicketChainRecord, TicketFundingOutpoint, TicketInvitation, TicketIssuedFact, TicketPackage, TicketRedeemedFact, TicketRedemption } from './types'
 import type { ArgusRole, AuthorityCredential, SignedArgusEvent } from '../distributed/types'
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -122,4 +122,39 @@ export function parseTicketRedeemedFact(value: unknown): TicketRedeemedFact {
   const ticketId = text(fact, 'ticketId', what, TICKET_ID), invitation = parseTicketInvitation(fact.invitation), redemption = parseTicketRedemption(fact.redemption)
   if (invitation.ticketId !== ticketId || redemption.ticketId !== ticketId || redemption.unitId !== invitation.unitId) throw new Error('This redemption names a different ticket from its invitation.')
   return { ticketId, invitation, issuerCredentials: credentials(fact.issuerCredentials, what), redemption }
+}
+
+// ---------- cadet tickets (docs/adr/013-cadet-channels.md, mw-kmgi38.2) ----------
+const CHANNEL_KEY = /^[0-9a-f]{64}$/
+/** At most 60 characters of the device's own name for itself ("Avery's phone"); only ever inside channel ciphertext. */
+export const MAX_DEVICE_LABEL_LENGTH = 60
+const cadetId = (value: Record<string, unknown>, what: string) => { const id = text(value, 'cadetId', what); return id.length <= 100 ? id : fail(what, 'cadetId') }
+const lifetimeOk = (issuedAt: string, expiresAt: string) => { const lifetime = Date.parse(expiresAt) - Date.parse(issuedAt); if (lifetime <= 0 || lifetime > TICKET_LIFETIME_MS) throw new Error('A ticket must expire within a week of being issued.') }
+
+/** Structure only: that each address is the one its key gives is checked by the phone that redeems it (cadetTicket.ts). */
+export function parseCadetTicketPackage(value: unknown): CadetTicketPackage {
+  const what = 'cadet ticket', ticket = object(value, what)
+  if (ticket.kind !== 'CADET' || ticket.packageVersion !== 1) throw new Error('Unsupported cadet ticket.')
+  const invitation = object(ticket.invitation, `${what} invitation`), label = `${what} invitation`
+  if (invitation.invitationVersion !== 1 || invitation.role !== 'CADET') throw new Error('Unsupported cadet ticket.')
+  const issuedAt = timestamp(invitation, 'issuedAt', label), expiresAt = timestamp(invitation, 'expiresAt', label)
+  lifetimeOk(issuedAt, expiresAt)
+  const unit = object(ticket.unit, `${what} unit`), unitInfo = { unitId: text(unit, 'unitId', `${what} unit`), unitName: text(unit, 'unitName', `${what} unit`) }
+  const parsed: CadetTicketPackage['invitation'] = { invitationVersion: 1, ticketId: text(invitation, 'ticketId', label, TICKET_ID), unitId: text(invitation, 'unitId', label), role: 'CADET', cadetId: cadetId(invitation, label), displayName: displayName(invitation, label), issuedAt, expiresAt, ticketPublicKey: text(invitation, 'ticketPublicKey', label, TICKET_PUBLIC_KEY), funding: funding(invitation.funding, label), returnAddress: text(invitation, 'returnAddress', label, TESTNET_ADDRESS) }
+  if (unitInfo.unitId !== parsed.unitId) throw new Error('This ticket names a different unit from its invitation.')
+  return { kind: 'CADET', packageVersion: 1, invitation: parsed, unit: unitInfo, channelKey: text(ticket, 'channelKey', what, CHANNEL_KEY), channelAddress: text(ticket, 'channelAddress', what, TESTNET_ADDRESS), noticesKey: text(ticket, 'noticesKey', what, CHANNEL_KEY), noticesAddress: text(ticket, 'noticesAddress', what, TESTNET_ADDRESS) }
+}
+
+export function parseCadetTicketIssuedFact(value: unknown): CadetTicketIssuedFact {
+  const what = 'CADET_TICKET_ISSUED fact', fact = object(value, what)
+  const issuedAt = timestamp(fact, 'issuedAt', what), expiresAt = timestamp(fact, 'expiresAt', what)
+  return { ticketId: text(fact, 'ticketId', what, TICKET_ID), cadetId: cadetId(fact, what), ticketAddress: text(fact, 'ticketAddress', what, TESTNET_ADDRESS), channelAddress: text(fact, 'channelAddress', what, TESTNET_ADDRESS), issuedAt, expiresAt, funding: funding(fact.funding, what) }
+}
+
+export function parseCadetJoinedRecord(value: unknown): CadetJoinedRecord {
+  const what = 'CADET_JOINED record', joined = object(value, what)
+  if (joined.kind !== 'CADET_JOINED') throw new Error('Unsupported CADET_JOINED record.')
+  const deviceLabel = text(joined, 'deviceLabel', what)
+  if (!deviceLabel.trim() || deviceLabel.length > MAX_DEVICE_LABEL_LENGTH) fail(what, 'deviceLabel')
+  return { kind: 'CADET_JOINED', joinedAt: timestamp(joined, 'joinedAt', what), deviceLabel }
 }

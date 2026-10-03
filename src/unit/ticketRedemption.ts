@@ -54,7 +54,7 @@ const inputsOf = (hex: string) => Transaction.fromHex(hex).inputs.map(input => `
 const outpoint = (funding: { txid: string; vout: number }) => `${funding.txid}:${funding.vout}`
 
 /** Every transaction at the ticket's address, oldest first, with the outputs it spends and its `T` records opened (or not). */
-async function ticketHistory(api: ChainApi, keys: TicketKeys) {
+export async function ticketHistory(api: ChainApi, keys: TicketKeys) {
   const txids: string[] = []
   let token: string | undefined, pages = 0
   do { const page = await api.confirmedHistory(keys.address, token ? { token } : {}); txids.push(...page.items.map(item => item.txid)); token = page.nextToken; pages++ } while (token && pages < MAX_HISTORY_PAGES)
@@ -87,17 +87,26 @@ async function genuinePackage(entries: Awaited<ReturnType<typeof ticketHistory>>
   return undefined
 }
 
+/** No single clock is trusted: the later of this device's and the chain's own (a phone set back gains nothing). */
+export async function ticketCheckTime(api: ChainApi, now?: () => Date) {
+  const chainTime = await api.tipTime().catch(() => undefined)
+  return new Date(Math.max((now?.() ?? new Date()).getTime(), chainTime ? Date.parse(chainTime) : 0)).toISOString()
+}
+/** Refuses a ticket whose funding output was spent (by anyone but this device's own redemption `ownSpend`), or that ran out unspent. */
+export function refuseSpentOrExpired(entries: Awaited<ReturnType<typeof ticketHistory>>, invitation: { funding: { txid: string; vout: number }; expiresAt: string }, checkedAt: string, ownSpend?: string) {
+  const spender = entries.find(entry => entry.spends.includes(outpoint(invitation.funding)))
+  if (spender && spender.txid !== ownSpend) throw new TicketRefusal(spender.records.some(record => (record.value as { kind?: unknown } | undefined)?.kind === 'TICKET_CANCELLED') ? 'CANCELLED' : 'USED')
+  if (!spender && Date.parse(checkedAt) >= Date.parse(invitation.expiresAt)) throw new TicketRefusal('EXPIRED')
+}
+
 async function openTicket(code: string, options: OpenOptions): Promise<OpenedTicket> {
   const keys = await deriveTicketKeys(decodeTicketCode(code)), api = options.api ?? new WhatsOnChainApi()
   const entries = await ticketHistory(api, keys)
-  // No single clock is trusted: the later of this device's and the chain's own (a phone set back gains nothing).
-  const chainTime = await api.tipTime().catch(() => undefined)
-  const checkedAt = new Date(Math.max((options.now?.() ?? new Date()).getTime(), chainTime ? Date.parse(chainTime) : 0)).toISOString()
+  const checkedAt = await ticketCheckTime(api, options.now)
   const ticket = await genuinePackage(entries, keys, checkedAt)
   if (!ticket) throw new TicketRefusal(entries.some(entry => entry.records.length) ? 'DAMAGED' : 'NOT_ON_NETWORK')
-  const { invitation } = ticket, spender = entries.find(entry => entry.spends.includes(outpoint(invitation.funding)))
-  if (spender && spender.txid !== options.ownSpend) throw new TicketRefusal(spender.records.some(record => (record.value as { kind?: unknown } | undefined)?.kind === 'TICKET_CANCELLED') ? 'CANCELLED' : 'USED')
-  if (!spender && Date.parse(checkedAt) >= Date.parse(invitation.expiresAt)) throw new TicketRefusal('EXPIRED')
+  const { invitation } = ticket
+  refuseSpentOrExpired(entries, invitation, checkedAt, options.ownSpend)
   return { code, keys, ticket, ticketId: invitation.ticketId, unitName: ticket.unit.unitName, issuerDisplayName: ticket.issuerDisplayName, displayName: invitation.displayName, role: invitation.role, expiresAt: invitation.expiresAt, checkedAt }
 }
 

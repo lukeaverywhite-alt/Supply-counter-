@@ -67,6 +67,20 @@ describe('FakeChain basics', () => {
     await expect(chain.txHex(txid)).resolves.toBe(chain.get(txid)?.hex)
     expect(chain.requestCount.txHex).toBe(4)
   })
+
+  it('counts every request, in total and as the difference between two moments, so a test can state a request budget', async () => {
+    const chain = new FakeChain()
+    const address = fakeAddress()
+    chain.fund(address, 10, { confirmed: true })
+    await chain.confirmedHistory(address); await chain.unconfirmedHistory(address); await chain.tipHeight()
+    expect(chain.totalRequests()).toBe(3)
+    const before = chain.requestSnapshot()
+    await chain.unspent(address); await chain.unspent(address); await chain.confirmedHistory(address)
+    expect(chain.requestsSince(before)).toEqual({ unspent: 2, txHex: 0, confirmedHistory: 1, unconfirmedHistory: 0, broadcast: 0, tipHeight: 0, total: 3 })
+    chain.resetRequestCounts()
+    expect(chain.totalRequests()).toBe(0)
+    expect(chain.requestCount).toEqual({ unspent: 0, txHex: 0, confirmedHistory: 0, unconfirmedHistory: 0, broadcast: 0, tipHeight: 0 })
+  })
 })
 
 describe('FakeChain broadcast validation', () => {

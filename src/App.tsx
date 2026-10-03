@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -18,6 +18,7 @@ import {
   UserPlus,
   Users,
   Ticket,
+  Megaphone,
   Wallet,
   Wifi,
 } from "lucide-react";
@@ -25,7 +26,11 @@ import {
   DistributedAppController,
   type ArgusAppProjection,
 } from "./distributed/appIntegration";
-import type { ArgusPermission, ArgusRole } from "./distributed/types";
+import type {
+  ArgusPermission,
+  ArgusRole,
+  NoticeAudience,
+} from "./distributed/types";
 import { ROLE_PERMISSIONS } from "./auth/authorization";
 import { IndexedDbRepository, MemoryRepository } from "./storage/repository";
 import { plural } from "./plural";
@@ -42,6 +47,11 @@ import { SharedCountView } from "./features/count/SharedCountView";
 import { InventoryCatalogView } from "./features/inventory/InventoryCatalogView";
 import { COUNT_INTERVAL_CHOICES } from "./stage3/inventoryStatus";
 import { CadetsView } from "./features/cadets/CadetsView";
+import type {
+  PhoneLineReader,
+  PhoneTicketMaker,
+} from "./features/cadets/PhoneTicketPanel";
+import { ticketWaiting } from "./features/cadets/phoneTicket";
 import { ConflictsPanel } from "./features/conflicts/ConflictsPanel";
 import { StillNeededActions } from "./features/needs/StillNeededActions";
 import { Dashboard, type DashboardTarget } from "./features/dashboard";
@@ -59,16 +69,18 @@ import { ActivityView } from "./features/activity";
 import { cadetLabel } from "./stage3/domain";
 import { UnitGate } from "./unit/screens/UnitGate";
 import { TicketsPanel } from "./unit/screens/TicketsPanel";
+import { NoticesPanel } from "./unit/screens/NoticesPanel";
 import { MembersPanel, WalletPanel } from "./unit/screens/UnitPanels";
 import { roleLabel, syncLabel, syncOutcome } from "./unit/screens/labels";
 import {
   DeviceNotificationSettings,
   useDeviceNotifications,
 } from "./notifications";
-import type {
-  UnitRuntime,
-  UnitRuntimeOptions,
-  UnitStatus,
+import {
+  cadetPhoneLine,
+  type UnitRuntime,
+  type UnitRuntimeOptions,
+  type UnitStatus,
 } from "./unit/runtime";
 
 export type Tab =
@@ -80,6 +92,7 @@ type Panel =
   | "needed"
   | "members"
   | "tickets"
+  | "notices"
   | "wallet"
   | "conflicts"
   | "diagnostics"
@@ -281,6 +294,46 @@ function AuthenticatedApp({
     [projection],
   );
   const notify = useCallback((message: string) => setNotice(message), []);
+  // Notices to cadets need a unit (the demo has no cadet phones to reach).
+  const sendNotice = useMemo(
+    () =>
+      runtime
+        ? (audience: NoticeAudience, text: string) =>
+            runtime.sendNotice(audience, text)
+        : undefined,
+    [runtime],
+  );
+  // A cadet's phone ticket needs a unit too. Waiting: the network did not take it yet, so it is saved here and goes out later.
+  const makePhoneTicket = useMemo<PhoneTicketMaker | undefined>(
+    () =>
+      runtime
+        ? async (cadetId: string) => {
+            const ticket = await runtime.issueCadetTicket(cadetId);
+            return { ticket, waiting: ticketWaiting(runtime.status()) };
+          }
+        : undefined,
+    [runtime],
+  );
+  // Replace phone: a new key and address for the cadet's channel (the old phone reads nothing new) and a new ticket for the new phone.
+  const replacePhone = useMemo<PhoneTicketMaker | undefined>(
+    () =>
+      runtime
+        ? async (cadetId: string) => {
+            const ticket = await runtime.reissueCadetTicket(cadetId);
+            return { ticket, waiting: ticketWaiting(runtime.status()) };
+          }
+        : undefined,
+    [runtime],
+  );
+  // The cadet drawer's Phone line: whether a phone has joined the cadet's current channel (one address read on demand).
+  const phoneLine = useMemo<PhoneLineReader | undefined>(
+    () =>
+      runtime
+        ? async (cadetId: string) =>
+            cadetPhoneLine(await runtime.readCadetChannel(cadetId))
+        : undefined,
+    [runtime],
+  );
   // Sync now (Count): says what actually happened, never "synchronized" while the network is unreachable.
   const syncNow = useCallback(async () => {
     if (!runtime) {
@@ -556,6 +609,10 @@ function AuthenticatedApp({
             notify={notify}
             onIssue={(cadetId) => openCadetWorkflow("cadet-issue", cadetId)}
             onReturn={(cadetId) => openCadetWorkflow("cadet-return", cadetId)}
+            sendNotice={sendNotice}
+            makePhoneTicket={makePhoneTicket}
+            replacePhone={replacePhone}
+            phoneLine={phoneLine}
           />
         )}
         {tab === "activity" && (
@@ -689,6 +746,16 @@ function AuthenticatedApp({
           notify={notify}
         />
       )}
+      {panel === "notices" && runtime && sendNotice && (
+        <NoticesPanel
+          projection={projection}
+          memberName={memberName}
+          canSend={can("notices.send")}
+          send={sendNotice}
+          close={() => setPanel(null)}
+          notify={notify}
+        />
+      )}
       {panel === "wallet" && runtime && status && (
         <WalletPanel
           runtime={runtime}
@@ -763,6 +830,12 @@ function CommandCenter({
               ],
             ] as CommandAction[])
           : []),
+        [
+          "notices",
+          "Notices",
+          "Send a notice to all cadets, and see the notices already sent",
+          Megaphone,
+        ],
         [
           "wallet",
           "Wallet & sync",

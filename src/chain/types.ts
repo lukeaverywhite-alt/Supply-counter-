@@ -120,7 +120,7 @@ export interface WalletStateStore {
 }
 
 /** A.R.G.U.S. record kinds carried in data outputs. */
-export type ArgusRecordKind = 'E' /* encrypted event envelope */ | 'G' /* key grant (wrapped unit key) */ | 'T' /* admission ticket record, at a ticket address (ADR 012) */
+export type ArgusRecordKind = 'E' /* encrypted event envelope */ | 'G' /* key grant (wrapped unit key) */ | 'T' /* admission ticket record, at a ticket address (ADR 012) */ | 'C' /* cadet channel record (envelope v3), at a channel address (ADR 013) */
 
 export type ArgusRecord = { kind: ArgusRecordKind; payload: Uint8Array }
 

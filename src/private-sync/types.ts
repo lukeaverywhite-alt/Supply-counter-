@@ -131,3 +131,18 @@ export type TicketChainRecord = { v: 1; nonce: string; ct: string }
 export type TicketIssuedFact = { ticketId: string; ticketAddress: string; ticketEcdhPublicKey: string; displayName: string; role: ArgusRole; issuedAt: string; expiresAt: string; funding: TicketFundingOutpoint }
 export type TicketCancelledFact = { ticketId: string; reason: TicketCancellation['reason']; cancelledAt: string; spendTxid: string }
 export type TicketRedeemedFact = { ticketId: string; invitation: TicketInvitation; issuerCredentials: AuthorityCredential[]; redemption: TicketRedemption }
+
+/**
+ * A cadet's ticket (ADR 013, mw-kmgi38.2), the CADET variant of the TICKET record: it opens one cadet's own channel and the unit's
+ * notices channel, never the unit. Unsigned: the ticket's wrapping key, which only the code gives, is its whole authenticity, and
+ * nothing the cadet's phone writes ever enters the unit's history. The phone's redemption spends the funding output and sends what
+ * is left of the starter satoshis back to `returnAddress` (the issuer's wallet): a cadet's phone keeps no coins and no wallet.
+ */
+export type CadetTicketInvitation = { invitationVersion: 1; ticketId: string; unitId: string; role: 'CADET'; cadetId: string; displayName: string; issuedAt: string; expiresAt: string; ticketPublicKey: string; funding: TicketFundingOutpoint; returnAddress: string }
+export type CadetTicketPackage = { kind: 'CADET'; packageVersion: 1; invitation: CadetTicketInvitation; unit: { unitId: string; unitName: string }; channelKey: string; channelAddress: string; noticesKey: string; noticesAddress: string }
+/** Either kind of record a ticket code opens. */
+export type AnyTicketPackage = TicketPackage | CadetTicketPackage
+/** The unit-log fact of a cadet ticket: no key, no code, no name. channelAddress is the channel the ticket grants, as it was then. */
+export type CadetTicketIssuedFact = { ticketId: string; cadetId: string; ticketAddress: string; channelAddress: string; issuedAt: string; expiresAt: string; funding: TicketFundingOutpoint }
+/** What a cadet's phone seals to its own channel on joining, so staff can see the cadet has a phone (record kind 'joined'). */
+export type CadetJoinedRecord = { kind: 'CADET_JOINED'; joinedAt: string; deviceLabel: string }

@@ -34,6 +34,8 @@ export type UnitSyncProviderDependencies = {
   authorization: AuthorizationService
   /** Called after a local event is durably queued so the chain transport can publish promptly. */
   onQueued?: () => void
+  /** Called with each event this device itself committed, once it is durably queued (a record this device made, never one read from the chain). */
+  onLocalEvent?: (event: SignedArgusEvent) => void
   /** Checks an opened record is genuine (author-bound event ID, author's signature). Forged copies are set aside, never folded. */
   validate?: (event: SignedArgusEvent) => Promise<boolean>
 }
@@ -75,6 +77,7 @@ export class UnitEventSyncProvider implements EventSyncProvider {
     await this.deps.store.addEnvelope({ eventId: event.eventId, envelope, origin: 'local', status: 'QUEUED', addedAt: new Date().toISOString() })
     this.delivered.add(event.eventId); this.backlog.delete(event.eventId)
     this.deps.onQueued?.()
+    this.deps.onLocalEvent?.(event)
   }
   /** Seals without storing: a record that can never be published (too large) is refused before it changes local state. */
   async preflight(event: SignedArgusEvent) { await this.seal(event) }

@@ -143,6 +143,26 @@ export class FakeChain implements ChainApi {
     this.injected.length = 0
   }
 
+  /** Requests answered so far, all kinds together. */
+  totalRequests(): number {
+    return Object.values(this.requestCount).reduce((total, count) => total + count, 0)
+  }
+
+  /** A copy of the request counts now, to measure what a later stretch of work cost with requestsSince(). */
+  requestSnapshot(): FakeChainRequestCounts {
+    return { ...this.requestCount }
+  }
+
+  /** The requests made since a requestSnapshot(), by kind and in total. */
+  requestsSince(snapshot: FakeChainRequestCounts): FakeChainRequestCounts & { total: number } {
+    const difference = Object.fromEntries(Object.entries(this.requestCount).map(([kind, count]) => [kind, count - snapshot[kind as keyof FakeChainRequestCounts]])) as FakeChainRequestCounts
+    return { ...difference, total: Object.values(difference).reduce((total, count) => total + count, 0) }
+  }
+
+  resetRequestCounts(): void {
+    for (const kind of Object.keys(this.requestCount) as Array<keyof FakeChainRequestCounts>) this.requestCount[kind] = 0
+  }
+
   /** Every stored transaction in the order it reached the chain. */
   transactions(): FakeChainTx[] {
     return [...this.txs.values()].sort((left, right) => left.sequence - right.sequence).map(({ txid, hex, height }) => ({ txid, hex, height }))

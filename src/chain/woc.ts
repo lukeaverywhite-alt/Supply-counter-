@@ -27,6 +27,10 @@ const DEFAULT_TX_HEX_NOT_FOUND_TIMEOUT_MS = 15_000
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 const DEFAULT_HISTORY_LIMIT = 1000
 const MAX_GET_ATTEMPTS = 3
+/** A 429 only says "too many requests from this address": waiting is the cure, so it earns more attempts than a failure that may be real. */
+const MAX_RATE_LIMITED_GET_ATTEMPTS = 6
+/** Backoff doubles from the first retry delay up to this; with jitter a wait is at most twice it. */
+const MAX_RETRY_DELAY_MS = 8000
 const MAX_ERROR_BODY_CHARS = 200
 const TXID_PATTERN = /^[0-9a-f]{64}$/i
 
@@ -59,6 +63,8 @@ export type WhatsOnChainApiOptions = {
   txHexNotFoundRetryMs?: number
   txHexNotFoundTimeoutMs?: number
   sleep?: (ms: number) => Promise<void>
+  /** Source of the jitter added to each retry wait, in [0, 1). Default Math.random. */
+  random?: () => number
   /** Clock used for pacing (ms). Injected together with sleep in tests. */
   now?: () => number
   /** Per-request timeout, including reading the body. */
@@ -111,6 +117,7 @@ export class WhatsOnChainApi implements ChainApi {
   private readonly txHexNotFoundTimeoutMs: number
   private readonly sleep: (ms: number) => Promise<void>
   private readonly now: () => number
+  private readonly random: () => number
   private readonly requestTimeoutMs: number
 
   /** Every request start queues behind the previous one so starts stay minSpacingMs apart. */
@@ -133,6 +140,7 @@ export class WhatsOnChainApi implements ChainApi {
     this.txHexNotFoundTimeoutMs = options.txHexNotFoundTimeoutMs ?? DEFAULT_TX_HEX_NOT_FOUND_TIMEOUT_MS
     this.sleep = options.sleep ?? defaultSleep
     this.now = options.now ?? (() => Date.now())
+    this.random = options.random ?? Math.random
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
   }
 
@@ -318,10 +326,16 @@ export class WhatsOnChainApi implements ChainApi {
 
   /**
    * GET with retries on 429, 5xx and rejected fetches (WoC's 429 has no CORS header, so a
-   * browser reports it as a network error). Any other non-2xx throws a ChainApiError with its status.
+   * browser reports it as a network error). Each wait doubles (up to MAX_RETRY_DELAY_MS) and gets random jitter
+   * added, so phones that were limited together do not all come back together. A 429 is retried up to
+   * MAX_RATE_LIMITED_GET_ATTEMPTS times, anything else up to MAX_GET_ATTEMPTS. Any other non-2xx throws a ChainApiError with its status.
    */
   private async get(path: string): Promise<RawResponse> {
     let delayMs = this.retryDelayMs
+    const backOff = async () => {
+      await this.sleep(delayMs * (1 + this.random()))
+      delayMs = Math.min(delayMs * 2, MAX_RETRY_DELAY_MS)
+    }
     for (let attempt = 1; ; attempt += 1) {
       let response: RawResponse
       try {
@@ -333,16 +347,15 @@ export class WhatsOnChainApi implements ChainApi {
             { path, cause: error },
           )
         }
-        await this.sleep(delayMs)
-        delayMs *= 2
+        await backOff()
         continue
       }
 
       if (response.status >= 200 && response.status < 300) return response
-      const retryable = response.status === 429 || response.status >= 500
-      if (retryable && attempt < MAX_GET_ATTEMPTS) {
-        await this.sleep(delayMs)
-        delayMs *= 2
+      const rateLimited = response.status === 429
+      const retryable = rateLimited || response.status >= 500
+      if (retryable && attempt < (rateLimited ? MAX_RATE_LIMITED_GET_ATTEMPTS : MAX_GET_ATTEMPTS)) {
+        await backOff()
         continue
       }
       throw new ChainApiError(`WhatsOnChain ${path} answered ${response.status}${snippet(response.body)}`, { status: response.status, path })

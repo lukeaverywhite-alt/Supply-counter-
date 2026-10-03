@@ -75,6 +75,14 @@ describe('encodeArgusRecordScript', () => {
     expect(Array.from(decoded.payload)).toEqual([7, 8])
   })
 
+  it('carries a cadet channel record under kind C and decodes it back', () => {
+    const script = encodeArgusRecordScript({ kind: 'C', payload: Uint8Array.of(3, 4) })
+    expect(script.toHex()).toBe(`${PREFIX_HEX}0143${'020304'}`)
+    const [decoded] = decodeArgusRecords(txWithScripts([script]))
+    expect(decoded).toMatchObject({ kind: 'C', vout: 0 })
+    expect(Array.from(decoded.payload)).toEqual([3, 4])
+  })
+
   it('accepts a Node Buffer payload', () => {
     const script = encodeArgusRecordScript({ kind: 'G', payload: Buffer.from([1, 2]) })
     expect(script.toHex()).toBe(`${PREFIX_HEX}0147${'020102'}`)

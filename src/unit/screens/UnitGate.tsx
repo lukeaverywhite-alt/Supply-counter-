@@ -1,13 +1,20 @@
 import { useEffect, useState } from 'react'
+import { CadetApp } from '../../cadet/CadetApp'
 import { UnitRuntime, type UnitRuntimeOptions } from '../runtime'
 import { TicketCodeError } from '../../identity/ticketCode'
+import { readCadetTicket, redeemCadetTicket, resumeCadetRedemption, type OpenedCadetTicket } from '../cadetTicket'
 import { TicketRefusal, readTicket, redeemTicket, resumeTicketRedemption, type OpenedTicket } from '../ticketRedemption'
 import { ticketCodeFromQrImage } from '../ticketQr'
-import { createJoiningDevice, createMasterDevice, forgetDevice, loadDeviceVault, readRedemption, restoreFromRecoveryFile, unlockDevice, type DeviceVaultRecord, type UnlockedDevice } from '../vault'
+import { CADET_VAULT_STORAGE_KEY, createJoiningDevice, createMasterDevice, forgetDevice, loadCadetVault, loadDeviceVault, readRedemption, restoreFromRecoveryFile, unlockCadetDevice, unlockDevice, type CadetVaultRecord, type DeviceVaultRecord, type UnlockedCadetDevice, type UnlockedDevice } from '../vault'
+import type { ChainApi } from '../../chain/types'
 import { plainChainError, roleLabel } from './labels'
 import './unit-gate.css'
 
-type Step = { kind: 'welcome' } | { kind: 'create' } | { kind: 'ticket' } | { kind: 'restore' } | { kind: 'unlock'; record: DeviceVaultRecord } | { kind: 'pending'; device: UnlockedDevice } | { kind: 'opening' } | { kind: 'ready'; runtime: UnitRuntime }
+type Step = { kind: 'welcome' } | { kind: 'create' } | { kind: 'ticket' } | { kind: 'restore' } | { kind: 'unlock'; record: DeviceVaultRecord } | { kind: 'pending'; device: UnlockedDevice } | { kind: 'opening' } | { kind: 'ready'; runtime: UnitRuntime } | { kind: 'cadetUnlock'; record: CadetVaultRecord } | { kind: 'cadet'; device: UnlockedCadetDevice }
+
+/** What a typed or scanned ticket code turned out to be: a person's ticket for the unit, or a cadet's ticket for their own gear. */
+type GateTicket = OpenedTicket | OpenedCadetTicket
+const isCadetTicket = (ticket: GateTicket): ticket is OpenedCadetTicket => 'cadetId' in ticket
 
 export type UnitGateProps = {
   children: (runtime: UnitRuntime, lock: () => void) => React.ReactNode
@@ -22,7 +29,10 @@ export type UnitGateProps = {
  * Each device creates its own keys and wallet here; nothing secret is ever copied between devices.
  */
 export function UnitGate({ children, runtimeOptions, storage = localStorage }: UnitGateProps) {
-  const [step, setStep] = useState<Step>(() => { const record = loadDeviceVault(storage); return record ? { kind: 'unlock', record } : { kind: 'welcome' } })
+  const [step, setStep] = useState<Step>(() => {
+    const record = loadDeviceVault(storage); if (record) return { kind: 'unlock', record }
+    const cadetRecord = loadCadetVault(storage); return cadetRecord ? { kind: 'cadetUnlock', record: cadetRecord } : { kind: 'welcome' }
+  })
   const [error, setError] = useState('')
   const open = async (device: UnlockedDevice) => {
     if (device.record.role === 'PENDING' || !device.record.unit) { setStep({ kind: 'pending', device }); return }
@@ -40,6 +50,7 @@ export function UnitGate({ children, runtimeOptions, storage = localStorage }: U
   const lock = () => { if (step.kind === 'ready') step.runtime.stop(); const record = loadDeviceVault(storage); setStep(record ? { kind: 'unlock', record } : { kind: 'welcome' }) }
 
   if (step.kind === 'ready') return <>{children(step.runtime, lock)}</>
+  if (step.kind === 'cadet') return <CadetApp device={step.device} storage={storage} {...(runtimeOptions?.api ? { api: runtimeOptions.api } : {})} onLeave={async () => { await forgetDevice(storage); setError(''); setStep({ kind: 'welcome' }) }} />
   if (step.kind === 'opening') return <main className="loading-state unit-gate" aria-live="polite"><GateBanner /><div className="modal"><h2>Opening your unit…</h2><p>Decrypting this device&apos;s copy and checking BSV testnet for everyone&apos;s latest work.</p></div></main>
   const openOptions = { ...runtimeOptions, storage: runtimeOptions?.storage ?? storage }
   const readOptions = runtimeOptions?.api ? { api: runtimeOptions.api } : {}
@@ -56,14 +67,35 @@ export function UnitGate({ children, runtimeOptions, storage = localStorage }: U
       throw cause
     }
   }
+  /** A cadet's ticket: the phone makes its own record under the passphrase and redeems; in cadet mode when the network accepts, waiting (unlock to try again) when it has not answered. */
+  const joinCadet = async (opened: OpenedCadetTicket, passphrase: string) => {
+    try {
+      const result = await redeemCadetTicket(opened, { passphrase }, { ...readOptions, storage })
+      if (result.status === 'ACTIVE') { setStep({ kind: 'cadet', device: result.device }); return }
+    } catch (cause) {
+      if (!loadCadetVault(storage)) throw cause
+    }
+    setError('Your ticket was accepted on this phone, but the network has not confirmed it yet. Enter your passphrase to try again.')
+    setStep({ kind: 'cadetUnlock', record: loadCadetVault(storage)! })
+  }
   if (step.kind === 'welcome') return <Welcome choose={kind => { setError(''); setStep({ kind }) }} />
   if (step.kind === 'restore') return <Restore back={() => setStep({ kind: 'welcome' })} submit={async input => open(await restoreFromRecoveryFile(input, storage))} />
   if (step.kind === 'create') return <CreateUnit back={() => setStep({ kind: 'welcome' })} submit={async input => open(await createMasterDevice({ passphrase: input.passphrase, displayName: input.displayName, unitName: input.unitName }, storage))} />
-  if (step.kind === 'ticket') return <TicketEntry newDevice back={() => setStep({ kind: 'welcome' })} check={code => readTicket(code, readOptions)} join={(opened, passphrase) => joinWith(opened, passphrase)} />
+  if (step.kind === 'ticket') return <TicketEntry newDevice back={() => setStep({ kind: 'welcome' })} check={checkTicket(readOptions)} join={(opened, passphrase) => isCadetTicket(opened) ? joinCadet(opened, passphrase) : joinWith(opened, passphrase)} />
   if (step.kind === 'pending') return <Pending device={step.device} check={code => readTicket(code, readOptions)} join={opened => joinWith(opened, '', step.device)} resume={async () => {
     const result = await resumeTicketRedemption(step.device, openOptions)
     if (result?.status === 'ACTIVE') await open(result.device); else if (result) setStep({ kind: 'pending', device: result.device })
   }} lock={lock} />
+  if (step.kind === 'cadetUnlock') return <Unlock record={step.record} initialError={error} unlock={async passphrase => {
+    setError('')
+    const device = await unlockCadetDevice(step.record, passphrase)
+    if (device.cadet) { setStep({ kind: 'cadet', device }); return }
+    // The phone was joining when it last closed: send the same redemption again.
+    const result = await resumeCadetRedemption({ passphrase }, { ...readOptions, storage })
+    if (!result) { storage.removeItem(CADET_VAULT_STORAGE_KEY); setStep({ kind: 'welcome' }); return }
+    if (result.status !== 'ACTIVE') throw new Error('The network has not confirmed your ticket yet. Try again in a moment.')
+    setStep({ kind: 'cadet', device: result.device })
+  }} reset={() => { void forgetDevice(storage).then(() => setStep({ kind: 'welcome' })) }} />
   return <Unlock record={step.record} initialError={error} unlock={async passphrase => { setError(''); await open(await unlockDevice(step.record, passphrase)) }} reset={() => { void forgetDevice(storage).then(() => setStep({ kind: 'welcome' })) }} />
 }
 
@@ -119,7 +151,7 @@ function CreateUnit({ back, submit }: { back: () => void; submit: (input: { unit
   )
 }
 
-function Unlock({ record, unlock, reset, initialError }: { record: DeviceVaultRecord; unlock: (passphrase: string) => Promise<void>; reset: () => void; initialError: string }) {
+function Unlock({ record, unlock, reset, initialError }: { record: DeviceVaultRecord | CadetVaultRecord; unlock: (passphrase: string) => Promise<void>; reset: () => void; initialError: string }) {
   const [passphrase, setPassphrase] = useState(''), [error, setError] = useState(initialError), [busy, setBusy] = useState(false), [resetting, setResetting] = useState(false), [confirmReset, setConfirmReset] = useState('')
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError('')
@@ -129,9 +161,9 @@ function Unlock({ record, unlock, reset, initialError }: { record: DeviceVaultRe
     <main className="loading-state unit-gate" aria-live="polite">
       <GateBanner />
       <form className="modal" aria-label="Unlock A.R.G.U.S." onSubmit={onSubmit}>
-        <p className="eyebrow">{record.unit ? record.unit.unitName.toUpperCase() : 'JOINING WITH A TICKET'}</p>
+        <p className="eyebrow">{'unit' in record && record.unit ? record.unit.unitName.toUpperCase() : 'JOINING WITH A TICKET'}</p>
         <h2>Unlock A.R.G.U.S.</h2>
-        <p>Welcome back, {record.displayName}. Enter this device&apos;s passphrase.</p>
+        <p>{'displayName' in record ? `Welcome back, ${record.displayName}. ` : ''}Enter this device&apos;s passphrase.</p>
         <label className="field">PASSPHRASE<input type="password" aria-label="Passphrase" value={passphrase} onChange={event => setPassphrase(event.target.value)} required autoFocus autoComplete="current-password" /></label>
         {error && <div className="workflow-error" role="alert">{error}</div>}
         <div className="modal-actions"><button className="primary-button" type="submit" disabled={busy}>{busy ? 'Unlocking…' : 'Unlock'}</button></div>
@@ -146,6 +178,20 @@ function Unlock({ record, unlock, reset, initialError }: { record: DeviceVaultRe
   )
 }
 
+/**
+ * Reads a code as a person's ticket first and, when that finds only a damaged or absent ticket, as a cadet's. A refusal the cadet
+ * reading gives in words (used, cancelled, expired) wins over the staff reading's "damaged": the code was a cadet's, and was spent.
+ */
+const checkTicket = (options: { api?: ChainApi }) => async (code: string): Promise<GateTicket> => {
+  try { return await readTicket(code, options) } catch (staffProblem) {
+    if (!(staffProblem instanceof TicketRefusal) || (staffProblem.reason !== 'DAMAGED' && staffProblem.reason !== 'NOT_ON_NETWORK')) throw staffProblem
+    try { return await readCadetTicket(code, options) } catch (cadetProblem) {
+      if (cadetProblem instanceof TicketRefusal && cadetProblem.reason !== 'DAMAGED' && cadetProblem.reason !== 'NOT_ON_NETWORK') throw cadetProblem
+      throw staffProblem
+    }
+  }
+}
+
 /** Words for a ticket that cannot be used (the code reader's and the ticket checker's own sentences); a lost connection in plain words; anything else as it was said. */
 function ticketProblem(cause: unknown, fallback: string) {
   if (!(cause instanceof Error)) return fallback
@@ -157,8 +203,8 @@ function ticketProblem(cause: unknown, fallback: string) {
  * Scan or type a ticket, see who it is for, and join. `newDevice`: this device has no keys yet, so it also asks for a passphrase
  * and makes its keys only once the ticket has been checked and is about to be used.
  */
-function TicketEntry({ newDevice, back, backLabel = 'Back', check, join }: { newDevice: boolean; back: () => void; backLabel?: string; check: (code: string) => Promise<OpenedTicket>; join: (opened: OpenedTicket, passphrase: string) => Promise<void> }) {
-  const [code, setCode] = useState(''), [opened, setOpened] = useState<OpenedTicket>(), [passphrase, setPassphrase] = useState(''), [confirm, setConfirm] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false)
+function TicketEntry<T extends GateTicket>({ newDevice, back, backLabel = 'Back', check, join }: { newDevice: boolean; back: () => void; backLabel?: string; check: (code: string) => Promise<T>; join: (opened: T, passphrase: string) => Promise<void> }) {
+  const [code, setCode] = useState(''), [opened, setOpened] = useState<T>(), [passphrase, setPassphrase] = useState(''), [confirm, setConfirm] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false)
   const checkCode = async (text: string) => {
     setBusy(true); setError(''); setOpened(undefined)
     try { setOpened(await check(text)) } catch (cause) { setError(ticketProblem(cause, 'This ticket could not be checked.')) } finally { setBusy(false) }
@@ -183,7 +229,13 @@ function TicketEntry({ newDevice, back, backLabel = 'Back', check, join }: { new
         <p>Your Master or Instructor made you a ticket. Scan its QR, or type its code (capitals, spaces and dashes do not matter). It works once.</p>
         <label className="field">TICKET CODE<input aria-label="Ticket code" value={code} onChange={event => { setCode(event.target.value); setOpened(undefined); setError('') }} autoComplete="off" autoCapitalize="characters" spellCheck={false} required placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX" /></label>
         <label className="field">OR A PICTURE OF ITS QR<input type="file" accept="image/*" capture="environment" aria-label="Ticket QR image" onChange={event => { scan(event.target.files?.[0]); event.target.value = '' }} /><small>Your phone may offer its camera or photo library. The picture never leaves this device.</small></label>
-        {opened && (
+        {opened && isCadetTicket(opened) && (
+          <div className="validation" role="status">
+            <strong>Cadet ticket for {opened.displayName}</strong>
+            <p>{opened.unitName}. Good until {new Date(opened.expiresAt).toLocaleDateString()}.</p>
+          </div>
+        )}
+        {opened && !isCadetTicket(opened) && (
           <div className="validation" role="status">
             <strong>Ticket for {opened.displayName}</strong>
             <p>{roleLabel(opened.role)} · {opened.unitName} · made by {opened.issuerDisplayName}. Good until {new Date(opened.expiresAt).toLocaleDateString()}.</p>

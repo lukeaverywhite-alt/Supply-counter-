@@ -17,6 +17,17 @@ This repository currently contains the first functional front-end prototype. It 
 - **Home dashboard** with the readiness tree and actionable alerts, a **supply calendar** (NCO, BLT, AMI, Military Ball, End-of-Year templates with preparation tasks), **roster import** by cadet ID and **annual rollover**.
 - **Optional device notifications** for critical alerts and deadlines under 24 hours while A.R.G.U.S. is open or in a background tab — generic wording, rate-limited, no server. A fully closed app gets only a best-effort check (installed Chrome/Edge apps). See [device notifications](docs/DEVICE_NOTIFICATIONS.md).
 
+## Cadet role
+
+A cadet can have a phone of their own that shows **what they have and what they still need**, and nothing else. Try it with [the cadets demo](docs/demo-argus-cadets.md); the design is [ADR 013](docs/adr/013-cadet-channels.md).
+
+- **How a cadet joins.** Staff (a Master, Instructor or Supply Officer) open the cadet in **Cadets** and tap **Make phone ticket**. The cadet's phone joins with that one-use ticket (**I have a ticket**) and opens on **My gear**: **Have**, **Still needed**, and **Notices**. A cadet is never a member of the unit.
+- **What a cadet phone holds.** Only the keys to that one cadet's own small sealed record (a channel of their own), the cadet's ID and name, and the phone's own device keys. It reads one address, its own channel, when the app opens, when the tab comes back and every 25 minutes (and at once on **Refresh**).
+- **What a cadet phone cannot read.** The unit's log, any other cadet's record, any member, any count, any stock: it holds no unit key, so there is nothing to read them with. Losing a cadet's phone exposes that one cadet's record and notices; **Leave this unit** erases it from the phone, and a replaced phone gets a new channel (the code exists; a button for it is not on a screen yet).
+- **Where notices go.** Staff with the notices permission send a notice to **all cadets** (**More**, **Notices**) or a note to one cadet (**Message this cadet** in the cadet's drawer). Each reaches a cadet as a sealed record in that cadet's own channel, so one cadet's note is unreadable to every other phone. Staff publish up to 25 records to a transaction, so a notice to 250 cadets is 10 transactions.
+- **Later epic: push when the app is closed.** A cadet sees a notice, with a badge, a banner and (if allowed) a device notification, only while A.R.G.U.S. is open. Telling a closed app needs a push server, which A.R.G.U.S. deliberately does not have; whether to add one is a decision for a later epic.
+- Proved with a test of 250 cadet phones that each read exactly their own record and no other ([the measured poll](docs/concurrency.md)), and of 20 staff phones writing at once.
+
 ## Local development
 
 ```bash

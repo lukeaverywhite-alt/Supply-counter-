@@ -1,4 +1,4 @@
-import { canonicalize } from '../distributed/canonical'
+import { canonicalize, sha256 } from '../distributed/canonical'
 import type { ArgusIdentityProvider } from '../identity/identity'
 import { verifyTicketSignature } from '../identity/ticketKeys'
 import type { ArgusPermission, ArgusRole, AuthorityCredential, AuthorityRevocation } from '../distributed/types'
@@ -6,12 +6,16 @@ import { parseTicketRedeemedFact } from '../private-sync/schema'
 import type { TicketInvitation, TicketRedeemedFact } from '../private-sync/types'
 
 export const ROLE_PERMISSIONS: Record<ArgusRole, readonly ArgusPermission[]> = {
-  MASTER: ['inventory.read', 'inventory.issue', 'inventory.return', 'inventory.count', 'inventory.adjust', 'inventory.create', 'cadets.read', 'cadets.manage', 'calendar.read', 'calendar.write', 'bundles.read', 'bundles.manage', 'audit.read', 'conflicts.resolve', 'users.authorize', 'users.revoke', 'users.manageRoles'],
-  INSTRUCTOR: ['inventory.read', 'inventory.issue', 'inventory.return', 'inventory.count', 'cadets.read', 'calendar.read', 'audit.read'],
-  SUPPLY_OFFICER: ['inventory.read', 'inventory.issue', 'inventory.return', 'inventory.count', 'inventory.adjust', 'inventory.create', 'cadets.read', 'cadets.manage', 'calendar.read', 'calendar.write', 'bundles.read', 'bundles.manage', 'audit.read', 'conflicts.resolve'],
+  MASTER: ['inventory.read', 'inventory.issue', 'inventory.return', 'inventory.count', 'inventory.adjust', 'inventory.create', 'cadets.read', 'cadets.manage', 'calendar.read', 'calendar.write', 'bundles.read', 'bundles.manage', 'audit.read', 'conflicts.resolve', 'users.authorize', 'users.revoke', 'users.manageRoles', 'cadets.admit', 'notices.send'],
+  INSTRUCTOR: ['inventory.read', 'inventory.issue', 'inventory.return', 'inventory.count', 'cadets.read', 'calendar.read', 'audit.read', 'cadets.admit', 'notices.send'],
+  SUPPLY_OFFICER: ['inventory.read', 'inventory.issue', 'inventory.return', 'inventory.count', 'inventory.adjust', 'inventory.create', 'cadets.read', 'cadets.manage', 'calendar.read', 'calendar.write', 'bundles.read', 'bundles.manage', 'audit.read', 'conflicts.resolve', 'cadets.admit', 'notices.send'],
   SUPPLY_ASSISTANT: ['inventory.read', 'inventory.issue', 'inventory.return', 'inventory.count', 'cadets.read', 'calendar.read', 'bundles.read'],
+  // A cadet reads only their own sealed record (ADR 013) and never acts in the unit log.
+  CADET: [],
 }
 
+/** ADR 013: cadets read their own channel and are never members, so no unit credential, grant or rotation ever reaches one. */
+const CADET_OUTSIDE_UNIT = 'A cadet never joins the unit: cadets read only their own channel (ADR 013).'
 type Clock = () => string
 const unsigned = <T extends { signature: string }>(value: T) => { const rest: Partial<T> = { ...value }; delete rest.signature; return canonicalize(rest) }
 
@@ -20,9 +24,30 @@ export async function issueCredential(issuer: ArgusIdentityProvider, input: Omit
   return { ...credential, signature: await issuer.sign(canonicalize(credential)) }
 }
 
-export async function issueRevocation(issuer: ArgusIdentityProvider, credential: AuthorityCredential, effectiveAt: string, revocationId = crypto.randomUUID()): Promise<AuthorityRevocation> {
+export async function issueRevocation(issuer: ArgusIdentityProvider, credential: AuthorityCredential, effectiveAt: string, revocationId: string = crypto.randomUUID()): Promise<AuthorityRevocation> {
   const value = { revocationVersion: 1 as const, revocationId, credentialId: credential.credentialId, subjectPublicIdentity: credential.subjectPublicIdentity, effectiveAt, issuedBy: await issuer.getPublicIdentity() }
   return { ...value, signature: await issuer.sign(canonicalize(value)) }
+}
+
+/**
+ * A signed credential carries the permission list it was made with, so a direct credential made before its role gained a permission
+ * (cadets.admit and notices.send, mw-kmgi38.1) lacks it until it is re-issued (mw-kmgi38.11). A ticket credential never needs it:
+ * every verifier derives its permissions from the role (ticketCredential).
+ */
+export const lacksRolePermissions = (credential: AuthorityCredential) => !isTicketCredential(credential) && credential.role !== 'CADET' && ROLE_PERMISSIONS[credential.role].some(permission => !credential.permissions.includes(permission))
+const REISSUED_PREFIX = 'reissued-'
+export const isReissuedCredential = (credential: Pick<AuthorityCredential, 'credentialId'>) => credential.credentialId.startsWith(REISSUED_PREFIX)
+/**
+ * The same credential with its role's current permissions, and the revocation of the old one, both signed by `issuer` (the unit
+ * authority). The new credential covers exactly the old one's span (same issuedAt and expiry; the old one is revoked from its own
+ * issuedAt), so everything the old one authorized stays authorized and nothing new is back-dated beyond it. Its ID and the revocation's
+ * are derived from the old credential and the new list, so two devices re-issuing at once make the same replacement.
+ */
+export async function reissueCredential(issuer: ArgusIdentityProvider, old: AuthorityCredential): Promise<{ credential: AuthorityCredential; revocation: AuthorityRevocation }> {
+  const permissions = [...new Set(ROLE_PERMISSIONS[old.role])].sort() as ArgusPermission[]
+  const digest = (await sha256(canonicalize({ replaces: old.credentialId, role: old.role, permissions }))).slice(0, 32)
+  const credential = await issueCredential(issuer, { credentialId: `${REISSUED_PREFIX}${digest}`, subjectPublicIdentity: old.subjectPublicIdentity, role: old.role, permissions, issuedAt: old.issuedAt, ...(old.expiresAt ? { expiresAt: old.expiresAt } : {}) })
+  return { credential, revocation: await issueRevocation(issuer, old, old.issuedAt, `${REISSUED_PREFIX}${digest}`) }
 }
 
 /**
@@ -120,6 +145,7 @@ export class AuthorizationService {
   async acceptCredential(credential: AuthorityCredential) {
     if (isTicketCredential(credential)) return this.acceptTicketCredential(credential)
     if (credential.credentialVersion !== 1 || !credential.credentialId || !credential.subjectPublicIdentity || !credential.issuedBy || !Array.isArray(credential.permissions)) throw new Error('Malformed authority credential.')
+    if (credential.role === 'CADET') throw new Error(CADET_OUTSIDE_UNIT)
     if (!(await this.verifier.verify(unsigned(credential), credential.signature, credential.issuedBy))) throw new Error('Invalid credential signature.')
     if (!this.issuerCanAuthorize(credential.issuedBy, credential.issuedAt)) throw new Error('Credential issuer is not authorized.')
     // Master authority is delegated only by the unit authority itself, never re-delegated by another Master.
@@ -158,6 +184,7 @@ export const CADET_TICKET_ROLES: readonly ArgusRole[] = ['SUPPLY_OFFICER', 'SUPP
  * It needs no permission of its own (adding one would change existing credentials): the ticket verifier and the unit fold apply this rule.
  */
 export function ticketRuleViolation(issuerRole: ArgusRole, ticketRole: ArgusRole): string | undefined {
+  if (ticketRole === 'CADET') return 'A cadet’s ticket is made from the cadet’s record: it opens only that cadet’s channel, never the unit.'
   if (issuerRole === 'MASTER') return undefined
   if (issuerRole === 'INSTRUCTOR') return CADET_TICKET_ROLES.includes(ticketRole) ? undefined : 'An Instructor can make tickets only for Supply Officers and Supply Assistants. Only a Master can make a Master or Instructor ticket.'
   return 'Only a Master or an Instructor can make tickets.'

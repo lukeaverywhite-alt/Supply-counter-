@@ -1,9 +1,13 @@
-export type ArgusRole = 'MASTER' | 'INSTRUCTOR' | 'SUPPLY_OFFICER' | 'SUPPLY_ASSISTANT'
+/**
+ * CADET is a person who reads only their own sealed record (ADR 013): never a unit member, so it holds no unit permission, no
+ * unit credential and no unit key. The other four are staff.
+ */
+export type ArgusRole = 'MASTER' | 'INSTRUCTOR' | 'SUPPLY_OFFICER' | 'SUPPLY_ASSISTANT' | 'CADET'
 
 export const permissions = [
   'inventory.read', 'inventory.issue', 'inventory.return', 'inventory.count', 'inventory.adjust', 'inventory.create',
   'cadets.read', 'cadets.manage', 'calendar.read', 'calendar.write', 'bundles.read', 'bundles.manage',
-  'audit.read', 'conflicts.resolve', 'users.authorize', 'users.revoke', 'users.manageRoles',
+  'audit.read', 'conflicts.resolve', 'users.authorize', 'users.revoke', 'users.manageRoles', 'cadets.admit', 'notices.send',
 ] as const
 export type ArgusPermission = typeof permissions[number]
 
@@ -29,7 +33,7 @@ export type AuthorityRevocation = {
   signature: string
 }
 
-export type DistributedEventType = 'INVENTORY_ITEM_CREATED' | 'INVENTORY_ITEM_UPDATED' | 'INVENTORY_RECEIVED' | 'CATALOG_ITEM_CREATED' | 'CATALOG_ITEM_UPDATED' | 'CATALOG_SIZES_ADDED' | 'ITEM_ISSUED' | 'ITEM_RETURNED' | 'INVENTORY_COUNT_SUBMITTED' | 'COUNT_SESSION_CREATED' | 'COUNT_CONTRIBUTED' | 'COUNT_CORRECTED' | 'COUNT_RECOUNTED' | 'COUNT_SESSION_SUBMITTED' | 'COUNT_SESSION_RECONCILED' | 'COUNT_SESSION_CANCELLED' | 'AUTHORITY_GRANTED' | 'ADMISSION_CONFIRMED' | 'AUTHORITY_REVOKED' | 'ROLE_CHANGED' | 'CONFLICT_DETECTED' | 'CONFLICT_RESOLVED' | 'RECORD_CORRECTED' | 'CADET_CREATED' | 'CADET_UPDATED' | 'BUNDLE_CREATED' | 'BUNDLE_UPDATED' | 'BUNDLE_DEACTIVATED' | 'STILL_NEEDED_ADDED' | 'STILL_NEEDED_UPDATED' | 'STILL_NEEDED_CANCELLED' | 'STILL_NEEDED_FULFILLED' | 'CALENDAR_EVENT_CREATED' | 'CALENDAR_EVENT_UPDATED' | 'CALENDAR_TASK_ADDED' | 'TASK_COMPLETED' | 'CALENDAR_ATTENDEES_ADDED' | 'CALENDAR_ATTENDEES_REMOVED' | 'CALENDAR_BUNDLES_ADDED' | 'CALENDAR_BUNDLES_REMOVED' | 'CALENDAR_TASK_UPDATED' | 'CALENDAR_TASK_REMOVED' | 'PROPERTY_CORRECTED' | 'ANNUAL_ROLLOVER_COMPLETED' | 'CADETS_IMPORTED' | 'UNIT_KEY_ROTATED' | 'RECOVERY_KEY_REGISTERED' | 'COUNT_SESSION_REOPENED' | 'TICKET_ISSUED' | 'TICKET_CANCELLED' | 'TICKET_REDEEMED'
+export type DistributedEventType = 'INVENTORY_ITEM_CREATED' | 'INVENTORY_ITEM_UPDATED' | 'INVENTORY_RECEIVED' | 'CATALOG_ITEM_CREATED' | 'CATALOG_ITEM_UPDATED' | 'CATALOG_SIZES_ADDED' | 'ITEM_ISSUED' | 'ITEM_RETURNED' | 'INVENTORY_COUNT_SUBMITTED' | 'COUNT_SESSION_CREATED' | 'COUNT_CONTRIBUTED' | 'COUNT_CORRECTED' | 'COUNT_RECOUNTED' | 'COUNT_SESSION_SUBMITTED' | 'COUNT_SESSION_RECONCILED' | 'COUNT_SESSION_CANCELLED' | 'AUTHORITY_GRANTED' | 'ADMISSION_CONFIRMED' | 'AUTHORITY_REVOKED' | 'ROLE_CHANGED' | 'CONFLICT_DETECTED' | 'CONFLICT_RESOLVED' | 'RECORD_CORRECTED' | 'CADET_CREATED' | 'CADET_UPDATED' | 'BUNDLE_CREATED' | 'BUNDLE_UPDATED' | 'BUNDLE_DEACTIVATED' | 'STILL_NEEDED_ADDED' | 'STILL_NEEDED_UPDATED' | 'STILL_NEEDED_CANCELLED' | 'STILL_NEEDED_FULFILLED' | 'CALENDAR_EVENT_CREATED' | 'CALENDAR_EVENT_UPDATED' | 'CALENDAR_TASK_ADDED' | 'TASK_COMPLETED' | 'CALENDAR_ATTENDEES_ADDED' | 'CALENDAR_ATTENDEES_REMOVED' | 'CALENDAR_BUNDLES_ADDED' | 'CALENDAR_BUNDLES_REMOVED' | 'CALENDAR_TASK_UPDATED' | 'CALENDAR_TASK_REMOVED' | 'PROPERTY_CORRECTED' | 'ANNUAL_ROLLOVER_COMPLETED' | 'CADETS_IMPORTED' | 'UNIT_KEY_ROTATED' | 'RECOVERY_KEY_REGISTERED' | 'COUNT_SESSION_REOPENED' | 'TICKET_ISSUED' | 'TICKET_CANCELLED' | 'TICKET_REDEEMED' | 'CADET_CHANNEL_CREATED' | 'CADET_CHANNEL_ROTATED' | 'CADET_NOTICES_KEY_CREATED' | 'CADET_TICKET_ISSUED' | 'NOTICE_SENT'
 export type LocalSyncStatus = 'LOCAL' | 'QUEUED' | 'SYNCING' | 'SYNCHRONIZED' | 'CONFLICT' | 'FAILED'
 
 export type UnsignedArgusEvent = {
@@ -102,6 +106,36 @@ export type KeyEpochProjection = { epochId: string; previousEpoch: string; reaso
  * Whether an OPEN ticket has run out of time depends on the viewer's clock, so the fold never decides it (see listTickets).
  */
 export type TicketProjection = { ticketId: string; ticketAddress: string; ticketEcdhPublicKey: string; displayName: string; role: ArgusRole; issuedAt: string; expiresAt: string; funding: { txid: string; vout: number; satoshis: number }; issuedBy: string; issuedEventId: string; status: 'OPEN' | 'REDEEMED' | 'CANCELLED'; cancelReason?: 'CANCELLED' | 'EXPIRED'; cancelledAt?: string; spendTxid?: string; redeemedAt?: string; redeemedBy?: string }
+/**
+ * A cadet's private channel (ADR 013): the AES-256 key (64 hex characters) that seals the cadet's record, and the testnet
+ * address derived from it (channelAddress) that the record is paid to. Only the unit log, sealed under the unit key, carries the
+ * key; the cadet's phone gets it in its ticket. version counts the keys: a rotation (Replace phone) makes a new key and address.
+ */
+export type CadetChannelProjection = { cadetId: string; channelKey: string; channelAddress: string; version: number; createdBy: string; createdAt: string; updatedAt: string; eventId: string; rotationReason?: string }
+/**
+ * A cadet's ticket (ADR 013, mw-kmgi38.2) as the unit log records it: which cadet, where the ticket lives, which channel it grants
+ * (the channel's address when it was made: after Replace phone it is stale), and the funding output a redemption spends. It holds
+ * no key and no code. A cadet never writes to the unit log, so whether the ticket was used is read from the cadet's channel.
+ */
+export type CadetTicketProjection = { ticketId: string; cadetId: string; ticketAddress: string; channelAddress: string; issuedAt: string; expiresAt: string; funding: { txid: string; vout: number; satoshis: number }; issuedBy: string; issuedEventId: string }
+/** Who a notice is for (ADR 013): every cadet (the notices channel), or one cadet (that cadet's channel). */
+export type NoticeAudience = 'all' | { cadetId: string }
+/**
+ * A notice staff sent (ADR 013, mw-kmgi38.5) as the unit log has it, from NOTICE_SENT. The text is also sealed to the audience's
+ * channel by the sending device; the cadet reads it there. sentBy is the sender's public identity (the panel shows their name).
+ */
+export type NoticeProjection = { noticeId: string; audience: NoticeAudience; text: string; sentBy: string; sentAt: string; eventId: string }
+/** The unit's one notices channel (ADR 013): a notice to all cadets is sealed under this key and paid to this address. */
+export type NoticesChannelProjection = { key: string; address: string; createdBy: string; createdAt: string; eventId: string }
+/**
+ * A cadet's own record (ADR 013): exactly what staff seal to the cadet's channel and nothing else (no gender, level, status,
+ * notes, staff names or record IDs). Have lines are what the cadet holds now; Still needed lines are the open part of each need.
+ * version rises with every folded change to the cadet or to one of the cadet's Still Needed lines, so a cadet's phone can keep
+ * the newest record it reads.
+ */
+export type CadetView = { cadetId: string; cadetCode: string; fullName: string; sizes: Record<string, string>; have: CadetViewHaveLine[]; stillNeeded: CadetViewNeedLine[]; version: number; updatedAt: string }
+export type CadetViewHaveLine = { itemId: string; label: string; size: string; quantity: number; issuedAt: string }
+export type CadetViewNeedLine = { label: string; size?: string; quantity: number }
 /** Public half of the unit recovery key; every rotation also wraps the new key to it so a recovery file never goes stale. */
 export type RecoveryKeyProjection = { publicKey: string; fingerprint: string; registeredBy: string; registeredAt: string; eventId: string }
 

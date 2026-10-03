@@ -1,0 +1,31 @@
+/* Loaded before styles.css, so every rule is scoped under .cadet-app and the descendant ones carry two classes. */
+.cadet-app { min-height: 100vh; display: grid; align-content: start; background: var(--color-bg-app); color: var(--color-text-primary); }
+.cadet-app .cadet-banner { margin: 12px 16px 0; border: 1px solid var(--color-warning); border-radius: 10px; padding: 8px 12px; font-size: 0.75rem; }
+.cadet-app .cadet-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; }
+.cadet-app .cadet-header h1 { margin: 0; font-size: 1.4rem; overflow-wrap: anywhere; }
+.cadet-app .cadet-header .secondary-button { padding: 0 16px; }
+.cadet-app .cadet-main { padding: 0 16px 24px; min-width: 0; }
+.cadet-app .cadet-card { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-bg-surface); min-width: 0; }
+.cadet-app .cadet-card h2 { margin: 0; font-size: 1.5rem; }
+.cadet-app .cadet-who { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
+.cadet-app .cadet-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.04em; color: var(--color-text-secondary); }
+.cadet-app .cadet-updated { margin: 0; font-size: 0.8rem; color: var(--color-text-secondary); }
+.cadet-app .cadet-list { display: grid; gap: 8px; min-width: 0; }
+.cadet-app .cadet-list h3 { margin: 4px 0 0; font-size: 1rem; }
+.cadet-app .cadet-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cadet-app .cadet-lines li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-surface-raised); overflow-wrap: anywhere; }
+.cadet-app .cadet-lines .cadet-item { flex: 1 1 140px; font-weight: 600; }
+.cadet-app .cadet-lines .cadet-size, .cadet-app .cadet-lines .cadet-qty { color: var(--color-text-secondary); white-space: nowrap; }
+.cadet-app .cadet-empty { margin: 0; color: var(--color-text-secondary); }
+.cadet-app .cadet-card .cadet-refresh { width: 100%; min-height: 48px; }
+.cadet-app .cadet-sheet { display: grid; gap: 14px; width: min(360px, 100%); }
+.cadet-app .cadet-sheet h2, .cadet-app .cadet-sheet p { margin: 0; }
+.cadet-app .cadet-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.cadet-app .cadet-header .cadet-notices-button { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+.cadet-app .cadet-notices-button .cadet-badge { min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; display: inline-grid; place-items: center; background: var(--color-warning); color: var(--color-bg-app); font-size: 0.8rem; font-weight: 700; }
+.cadet-app .cadet-main .cadet-notice-banner { width: 100%; min-height: 48px; margin: 0 0 12px; padding: 10px 16px; border: 1px solid var(--color-warning); border-radius: 12px; background: var(--color-bg-surface-raised); color: var(--color-text-primary); font-weight: 600; text-align: left; }
+.cadet-app .cadet-notices { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cadet-app .cadet-notices li { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-surface-raised); overflow-wrap: anywhere; }
+.cadet-app .cadet-notices .cadet-new { justify-self: start; padding: 1px 8px; border-radius: 8px; background: var(--color-warning); color: var(--color-bg-app); font-size: 0.75rem; font-weight: 700; }
+.cadet-app .cadet-notices .cadet-notice-text { margin: 0; font-weight: 600; white-space: pre-wrap; }
+.cadet-app .cadet-notices .cadet-notice-from { margin: 0; font-size: 0.8rem; color: var(--color-text-secondary); }

@@ -74,3 +74,64 @@ export const serializeEnvelope = (envelope: UnitEnvelope) => encoder.encode(cano
 export const deserializeEnvelope = (bytes: Uint8Array) => parseEnvelope(JSON.parse(decoder.decode(bytes)))
 /** The complete set of fields that ever appear in plaintext on chain. Tests assert nothing else leaks. */
 export const PUBLIC_ENVELOPE_FIELDS = ['v', 'unit', 'epoch', 'eventId', 'z', 'nonce', 'ct'] as const
+
+/**
+ * Cadet channel envelope, version 3 (ADR 013): a record sealed to ONE channel, a cadet's own or the unit's notices channel, and
+ * paid to that channel's address under record kind 'C'. It never carries a unit ID or key epoch: a cadet's phone holds no unit
+ * key and cannot open anything sealed under one, and a unit key cannot open this.
+ *
+ * Public: format version, channel ID (the channel's address), what the record is ('view': the cadet's record; 'notice': a
+ * notice), whether it was compressed, nonce and ciphertext. Names, codes, sizes, gear and notice text are inside AES-256-GCM
+ * ciphertext under the channel key. The public header is the GCM additional data, so a record cannot be moved to another
+ * channel or relabelled. Same 60 KB cap as a unit record. 'joined': the cadet's phone says it joined (CADET_JOINED, mw-kmgi38.2).
+ */
+export type ChannelRecordKind = 'view' | 'notice' | 'joined'
+export type ChannelEnvelope = { v: 3; ch: string; kind: ChannelRecordKind; z: 0 | 1; nonce: string; ct: string }
+export const CHANNEL_RECORD_KINDS: readonly ChannelRecordKind[] = ['view', 'notice', 'joined']
+/** The complete set of fields of a channel record that appear in plaintext on chain. */
+export const PUBLIC_CHANNEL_ENVELOPE_FIELDS = ['v', 'ch', 'kind', 'z', 'nonce', 'ct'] as const
+const MAX_CHANNEL_ID_LENGTH = 100
+const CHANNEL_KEY_PATTERN = /^[0-9a-fA-F]{64}$/
+const channelAad = (envelope: Pick<ChannelEnvelope, 'v' | 'ch' | 'kind' | 'z'>) => encoder.encode(canonicalize({ v: envelope.v, ch: envelope.ch, kind: envelope.kind, z: envelope.z }))
+const validChannelId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= MAX_CHANNEL_ID_LENGTH
+
+/** A fresh channel key: 32 random bytes as 64 lowercase hex characters, the form the unit log records (CADET_CHANNEL_CREATED). */
+export const newChannelKey = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('')
+export async function importChannelKey(channelKey: string): Promise<CryptoKey> {
+  if (typeof channelKey !== 'string' || !CHANNEL_KEY_PATTERN.test(channelKey)) throw new Error('A channel key is 32 bytes, written as 64 hex characters.')
+  const bytes: Uint8Array<ArrayBuffer> = new Uint8Array(32)
+  for (let index = 0; index < 32; index++) bytes[index] = Number.parseInt(channelKey.slice(index * 2, index * 2 + 2), 16)
+  return crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+}
+
+export async function sealToChannel(input: { channelId: string; key: CryptoKey; kind: ChannelRecordKind; plaintext: unknown }): Promise<ChannelEnvelope> {
+  if (!validChannelId(input.channelId)) throw new Error('A channel record needs the channel it belongs to.')
+  if (!CHANNEL_RECORD_KINDS.includes(input.kind)) throw new Error('Unknown kind of channel record.')
+  if (input.plaintext === undefined) throw new Error('A channel record needs content.')
+  const packed = await compress(encoder.encode(JSON.stringify(input.plaintext)))
+  const nonce = crypto.getRandomValues(new Uint8Array(12))
+  const header = { v: 3 as const, ch: input.channelId, kind: input.kind, z: packed.z }
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: channelAad(header), tagLength: 128 }, input.key, buffer(packed.bytes)))
+  const envelope: ChannelEnvelope = { ...header, nonce: bytesToBase64(nonce), ct: bytesToBase64(ciphertext) }
+  if (serializeChannelEnvelope(envelope).length > MAX_ENVELOPE_BYTES) throw new Error('This record is too large to publish.')
+  return envelope
+}
+
+/** Opens a channel record with the channel key; `channelId`, when given, must be the channel the reader expects (its address). */
+export async function openFromChannel(envelope: ChannelEnvelope, key: CryptoKey, channelId?: string): Promise<{ kind: ChannelRecordKind; plaintext: unknown }> {
+  if (channelId !== undefined && envelope.ch !== channelId) throw new Error('This record belongs to another channel.')
+  let clear: Uint8Array
+  try { clear = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buffer(base64ToBytes(envelope.nonce)), additionalData: channelAad(envelope), tagLength: 128 }, key, buffer(base64ToBytes(envelope.ct)))) }
+  catch { throw new Error('Envelope authentication failed: wrong channel key or tampered record.') }
+  return { kind: envelope.kind, plaintext: JSON.parse(decoder.decode(await decompress(clear, envelope.z))) as unknown }
+}
+
+export function parseChannelEnvelope(value: unknown): ChannelEnvelope {
+  if (!record(value) || value.v !== 3 || (value.z !== 0 && value.z !== 1) || Object.keys(value).sort().join() !== [...PUBLIC_CHANNEL_ENVELOPE_FIELDS].sort().join()) throw new Error('Unsupported A.R.G.U.S. channel envelope.')
+  if (!CHANNEL_RECORD_KINDS.includes(value.kind as ChannelRecordKind)) throw new Error('Invalid channel envelope field: kind.')
+  if (!validChannelId(value.ch)) throw new Error('Invalid channel envelope field: ch.')
+  for (const field of ['nonce', 'ct'] as const) if (typeof value[field] !== 'string' || !value[field] || (value[field] as string).length > MAX_ENVELOPE_BYTES) throw new Error(`Invalid channel envelope field: ${field}.`)
+  return { v: 3, ch: value.ch, kind: value.kind as ChannelRecordKind, z: value.z, nonce: value.nonce as string, ct: value.ct as string }
+}
+export const serializeChannelEnvelope = (envelope: ChannelEnvelope) => encoder.encode(canonicalize(envelope))
+export const deserializeChannelEnvelope = (bytes: Uint8Array) => parseChannelEnvelope(JSON.parse(decoder.decode(bytes)))

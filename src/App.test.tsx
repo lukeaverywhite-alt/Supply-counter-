@@ -157,6 +157,57 @@ describe('unit onboarding over a (fake) BSV testnet chain', { timeout: 120_000 }
     expect(loadDeviceVault(joinerStorage)?.unit?.unitId).toBe(loadDeviceVault(masterStorage)?.unit?.unitId)
   })
 
+  it('the Master sends a notice to all cadets from More, Notices: it is listed under Sent notices with the sender, and a toast says Notice sent', async () => {
+    const chain = new FakeChain()
+    const storage = await createUnitThroughUi(chain)
+    chain.fund(loadDeviceVault(storage)!.walletAddress, 100_000, { confirmed: true })
+    await goTo('More')
+    fireEvent.click(await screen.findByRole('button', { name: /Notices/ }))
+    const panel = await screen.findByRole('dialog', { name: 'Notices' })
+    fireEvent.change(within(panel).getByLabelText('Notice to all cadets'), { target: { value: 'Military ball: bring your SDBs' } })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Send' }))
+    expect(await screen.findByText('Notice sent', {}, { timeout: 20_000 })).toBeInTheDocument()
+    const sent = within(panel).getByRole('list', { name: 'Sent notices' })
+    expect(sent).toHaveTextContent('Military ball: bring your SDBs')
+    expect(sent).toHaveTextContent('You')
+  })
+
+  it('the Master makes a cadet a phone ticket from the cadet drawer (code and QR shown), then Message this cadet sends to that cadet', async () => {
+    const chain = new FakeChain()
+    const storage = await createUnitThroughUi(chain)
+    chain.fund(loadDeviceVault(storage)!.walletAddress, 100_000, { confirmed: true })
+    await goTo('Cadets')
+    fireEvent.click(await screen.findByRole('button', { name: 'Add cadet' }))
+    const form = screen.getByRole('form', { name: 'Add cadet' })
+    fireEvent.change(within(form).getByLabelText('Cadet ID (optional)'), { target: { value: 'C-PT34' } })
+    fireEvent.change(within(form).getByLabelText('Gender'), { target: { value: 'Male' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Add cadet' }))
+    fireEvent.click(await screen.findByRole('button', { name: /C-PT34/ }))
+    const drawer = await screen.findByRole('dialog', { name: 'C-PT34' })
+    // Before a ticket there is no phone to message.
+    fireEvent.click(await within(drawer).findByRole('button', { name: 'Message this cadet' }))
+    expect(await within(drawer).findByText('This cadet has no phone yet')).toBeInTheDocument()
+    fireEvent.click(await within(drawer).findByRole('button', { name: 'Make phone ticket' }))
+    expect(await within(drawer).findByText('Phone ticket ready for C-PT34', {}, { timeout: 30_000 })).toBeInTheDocument()
+    expect(within(drawer).getByLabelText('Ticket code').textContent).toMatch(/^([0-9A-Z]{5}-){5}[0-9A-Z]{5}$/)
+    expect(await within(drawer).findByRole('img', { name: 'Ticket QR code for C-PT34' })).toBeInTheDocument()
+    expect(within(drawer).getByRole('button', { name: 'Copy code' })).toBeInTheDocument()
+    // The message box that said "no phone yet" now takes the text.
+    await waitFor(() => expect(within(drawer).queryByText('This cadet has no phone yet')).toBeNull())
+    fireEvent.change(await within(drawer).findByLabelText('Message to this cadet'), { target: { value: 'Come to supply Thursday' } })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Send' }))
+    expect(await screen.findByText('Message sent to C-PT34', {}, { timeout: 30_000 })).toBeInTheDocument()
+    // Replace phone: no phone has joined yet; asked once, it makes a different ticket on a new channel.
+    const firstCode = within(drawer).getByLabelText('Ticket code').textContent
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Hide' }))
+    expect(await within(drawer).findByText('No phone yet', {}, { timeout: 30_000 })).toBeInTheDocument()
+    fireEvent.click(await within(drawer).findByRole('button', { name: 'Replace phone' }))
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Yes, replace phone' }))
+    expect(await within(drawer).findByText('Phone ticket ready for C-PT34', {}, { timeout: 30_000 })).toBeInTheDocument()
+    expect(within(drawer).getByLabelText('Ticket code').textContent).toMatch(/^([0-9A-Z]{5}-){5}[0-9A-Z]{5}$/)
+    expect(within(drawer).getByLabelText('Ticket code').textContent).not.toBe(firstCode)
+  })
+
   it('locks back to the unlock screen and rejects a wrong passphrase', async () => {
     const chain = new FakeChain()
     await createUnitThroughUi(chain)

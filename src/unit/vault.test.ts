@@ -72,3 +72,20 @@ describe('encrypted envelope', { timeout: 60_000 }, () => {
     expect(await new IndexedDbLedgerStore(unitId, factory).envelopes()).toEqual([])
   })
 })
+
+describe('a cadet phone keeps its notices sealed (mw-kmgi38.6)', { timeout: 60_000 }, () => {
+  const cadet = { cadetId: 'cad-1', displayName: 'Avery Private', unit: { unitId: 'u-1', unitName: 'Bethel NJROTC' }, channelKey: 'k', channelAddress: 'a', noticesKey: 'n', noticesAddress: 'na', joinedAt: '2026-10-03T00:00:00.000Z' }
+  it('round-trips through a reload, is unreadable in storage, and a damaged entry reads as none', async () => {
+    const storage = memoryStorage(), device = await vault.completeCadetRedemption(await vault.createCadetVault(PASS, storage), cadet, storage)
+    expect(await vault.loadCadetNotices(device)).toEqual([])
+    const notices = [{ noticeId: 'n1', text: 'Military ball: bring your SDBs', from: 'Chief', sentAt: '2026-10-03T12:00:00.000Z', readAt: '2026-10-03T13:00:00.000Z' }, { noticeId: 'n2', text: 'Thursday', from: 'Chief', sentAt: '2026-10-03T14:00:00.000Z' }]
+    await vault.saveCadetNotices(device, notices, storage)
+    expect(storage.getItem(vault.CADET_VAULT_STORAGE_KEY)).not.toContain('Military ball')
+    const again = await vault.unlockCadetDevice(vault.loadCadetVault(storage)!, PASS)
+    expect(await vault.loadCadetNotices(again)).toEqual(notices)
+    expect(again.cadet).toEqual(cadet)
+    // Sealed under another name (the redemption's), it does not open as notices.
+    again.record = { ...again.record, secrets: { ...again.record.secrets, notices: again.record.secrets.cadet } }
+    expect(await vault.loadCadetNotices(again)).toEqual([])
+  })
+})

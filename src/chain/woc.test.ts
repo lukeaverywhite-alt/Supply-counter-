@@ -54,6 +54,7 @@ function harness(route: (url: string, method: string) => Reply | Reply[], option
   const api = new WhatsOnChainApi({
     fetcher,
     now: () => clock,
+    random: () => 0, // no jitter unless a test asks for it, so the waits below are exact
     sleep: async (ms) => {
       sleeps.push(ms)
       clock += ms
@@ -64,6 +65,7 @@ function harness(route: (url: string, method: string) => Reply | Reply[], option
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -118,6 +120,30 @@ describe('pacing and retries', () => {
     await expect(api.tipHeight()).resolves.toBe(9)
     expect(calls).toHaveLength(3)
     expect(sleeps).toEqual([500, 1000])
+  })
+
+  it('adds random jitter to each backoff wait, so phones that were limited together do not retry together', async () => {
+    const draws = [0.25, 0.5, 0.75]
+    const { api, sleeps } = harness(() => [text('slow down', 429), text('slow down', 429), text('slow down', 429), json({ blocks: 9 })], { random: () => draws.shift() ?? 0 })
+    await expect(api.tipHeight()).resolves.toBe(9)
+    expect(sleeps).toEqual([500 * 1.25, 1000 * 1.5, 2000 * 1.75])
+  })
+
+  it('keeps backing off on 429 for more attempts than other failures (a limit is a reason to wait, not to give up), with growing waits up to a cap', async () => {
+    const { api, calls, sleeps } = harness(() => [...Array.from({ length: 7 }, () => text('slow down', 429)), json({ blocks: 4 })], { retryDelayMs: 1000 })
+    const error = await api.tipHeight().catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ status: 429 })
+    expect(calls).toHaveLength(6)
+    expect(sleeps).toEqual([1000, 2000, 4000, 8000, 8000])
+  })
+
+  it('draws jitter from Math.random by default, never shortening a wait', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    const waits: number[] = []
+    const api = new WhatsOnChainApi({ fetcher: vi.fn().mockResolvedValueOnce(text('', 429)).mockResolvedValueOnce(json({ blocks: 1 })) as unknown as typeof fetch, minSpacingMs: 0, sleep: async (ms) => { waits.push(ms) } })
+    await api.tipHeight()
+    expect(waits).toHaveLength(1)
+    expect(waits[0]).toBe(750)
   })
 
   it('retries 5xx and gives up after three attempts with the status', async () => {

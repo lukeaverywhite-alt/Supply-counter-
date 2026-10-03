@@ -287,17 +287,21 @@ export class DeviceWallet {
     return balanceOf(await this.loadState())
   }
 
-  /** Builds, signs and queues one transaction carrying the records plus a 1-sat anchor output. Never broadcasts. */
-  prepareRecords(records: ArgusRecord[], anchorAddress: string, correlationIds: string[]): Promise<WalletPendingTx> {
+  /**
+   * Builds, signs and queues one transaction carrying the records plus a 1-sat anchor output to `anchorAddress` (and to each of
+   * `alsoAnchorAddresses`, so a batch of records for several channels shows in each channel's address history). Never broadcasts.
+   */
+  prepareRecords(records: ArgusRecord[], anchorAddress: string, correlationIds: string[], alsoAnchorAddresses: readonly string[] = []): Promise<WalletPendingTx> {
     return this.exclusive(async () => {
       assertValidRecordBatch(records)
-      assertTestnetAddress(anchorAddress, 'Anchor address')
+      const anchors = [...new Set([anchorAddress, ...alsoAnchorAddresses])]
+      for (const anchor of anchors) assertTestnetAddress(anchor, 'Anchor address')
       if (!Array.isArray(correlationIds) || correlationIds.some((id) => typeof id !== 'string')) {
         throw new Error('correlationIds must be an array of strings.')
       }
       const outputs: PlannedOutput[] = [
         ...records.map((record) => ({ lockingScript: encodeArgusRecordScript(record), satoshis: 0 })),
-        { lockingScript: anchorLockingScript(anchorAddress), satoshis: ANCHOR_OUTPUT_SATOSHIS },
+        ...anchors.map((anchor) => ({ lockingScript: anchorLockingScript(anchor), satoshis: ANCHOR_OUTPUT_SATOSHIS })),
       ]
       return this.prepare('records', outputs, [...correlationIds])
     })

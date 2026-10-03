@@ -46,6 +46,7 @@ export class DeviceNotifier {
   private closedAppChecks = false
   private summaryItems = ''
   private summaryWrittenAt = 0
+  private readonly announced = new Set<string>()
 
   constructor(private readonly environment: NotificationEnvironment = browserNotificationEnvironment, private readonly store = new NotificationHistoryStore()) {
     this.history = store.load()
@@ -81,6 +82,17 @@ export class DeviceNotifier {
     if (close.length) void this.environment.close(close)
     this.refreshSummary(input.projection, input.now, acknowledgedIds(input.alerts, input.acknowledged), leaving)
     return decision
+  }
+
+  /**
+   * One device notification for something that is not a supply alert (a cadet's new notice, mw-kmgi38.6), while the app is open.
+   * Never twice for the same id in this session; nothing at all unless the person has allowed notifications. Returns whether it was shown.
+   */
+  notify(notice: { id: string; title: string; body: string }): boolean {
+    if (this.environment.permission() !== 'granted' || this.announced.has(notice.id)) return false
+    this.announced.add(notice.id)
+    void this.environment.show({ tag: notice.id, title: notice.title, body: notice.body })
+    return true
   }
 
   /** The person opened A.R.G.U.S. from a notification: stop escalating and clear what is showing. */

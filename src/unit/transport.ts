@@ -44,7 +44,7 @@ export type ChainTransportDependencies = {
 }
 
 /** Records in one transaction are capped both by count and by total size so a transaction stays small and cheap to relay. */
-const MAX_BATCH_BYTES = 90 * 1024
+export const MAX_BATCH_BYTES = 90 * 1024
 const MAX_HISTORY_PAGES_PER_SCAN = 20
 /**
  * A transaction the network accepted must appear on the anchor history. One still missing after
@@ -242,7 +242,7 @@ export class ChainTransport {
       // The outputs this transaction spends travel with its envelopes: a ticket's redemption counts only from the spend of its funding.
       const spends = () => spent ??= (() => { try { return Transaction.fromHex(hex).inputs.map(input => `${input.sourceTXID}:${input.sourceOutputIndex}`) } catch { return [] } })()
       for (const record of records) {
-        if (record.kind !== 'E') continue
+        if (record.kind !== 'E') continue // a key grant, ticket or cadet channel record (kind C) paid here is not part of the unit log
         let envelope
         try { envelope = deserializeEnvelope(record.payload) } catch { continue } // anyone can pay the anchor; foreign or malformed data is ignored
         if (envelope.unit !== unitId) continue

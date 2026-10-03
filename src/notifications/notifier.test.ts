@@ -152,3 +152,21 @@ describe('useDeviceNotifications', () => {
     expect(fake.summaries).toEqual([undefined])
   })
 })
+
+describe('DeviceNotifier.notify (a cadet’s new notice, mw-kmgi38.6)', () => {
+  const notice = { id: 'notice:n1', title: 'Bethel NJROTC', body: 'Military ball: bring your SDBs' }
+  it('shows one notification with the unit as title and the text as body, and never a second for the same id', () => {
+    const fake = fakeEnvironment(), notifier = new DeviceNotifier(fake.environment, new NotificationHistoryStore(memoryStorage()))
+    expect(notifier.notify(notice)).toBe(true)
+    expect(notifier.notify(notice)).toBe(false)
+    expect(notifier.notify({ ...notice, id: 'notice:n2', body: 'Another' })).toBe(true)
+    expect(fake.shown).toEqual([{ tag: 'notice:n1', title: 'Bethel NJROTC', body: 'Military ball: bring your SDBs' }, { tag: 'notice:n2', title: 'Bethel NJROTC', body: 'Another' }])
+  })
+  it('shows nothing unless notifications are allowed', () => {
+    for (const permission of ['denied', 'default', 'unsupported'] as const) {
+      const fake = fakeEnvironment({ permission: () => permission }), notifier = new DeviceNotifier(fake.environment, new NotificationHistoryStore(memoryStorage()))
+      expect(notifier.notify(notice)).toBe(false)
+      expect(fake.shown).toEqual([])
+    }
+  })
+})
